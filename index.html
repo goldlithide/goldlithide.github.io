@@ -56,17 +56,12 @@ svg path.done{stroke:var(--accent);stroke-width:2}
   <button id="zin" title="Zoom in">+</button>
   <button id="gofinal">Go to final</button>
   <input type="text" id="search" placeholder="Find a song (Enter)">
-  <button id="adminBtn">Admin</button>
+  <button id="adminBtn">Setup</button>
   <span id="status"></span>
 </header>
 
 <section id="admin">
-  <div id="lock">
-    <input type="password" id="pw" placeholder="Admin password">
-    <button id="unlock" class="primary">Unlock</button>
-    <span id="pwmsg" style="color:var(--accent)"></span>
-  </div>
-  <div id="tools" style="display:none">
+  <div id="tools">
     <div style="margin-bottom:6px;color:var(--muted)">Paste exactly 512 songs, one per line. Pairings are randomized when you create the bracket.</div>
     <textarea id="ta" placeholder="Song 1&#10;Song 2&#10;Song 3&#10;..."></textarea>
     <div class="row">
@@ -89,10 +84,8 @@ svg path.done{stroke:var(--accent);stroke-width:2}
 const CONFIG = {
   // Your Firebase Realtime Database URL, no trailing slash. Example:
   // "https://my-bracket-default-rtdb.firebaseio.com"
-  DB_URL: "",
+  DB_URL: "https://songs-c0dcf-default-rtdb.firebaseio.com/",
   PATH: "bracket",             // where the data lives inside the database
-  ADMIN_PASSWORD: "changeme",  // change this
-  ONLY_ADMIN_CAN_PICK: false,   // false = any visitor can click to advance songs
   POLL_MS: 8000                // how often visitors check for updates
 };
 /* ============================================ */
@@ -104,7 +97,6 @@ const TOTAL_W = 10 * (W + G) - G;   // 9 rounds + champion column
 const TOTAL_H = TOP + 256 * H + 20;
 
 let state = null;      // {seeds:[512], picks:[[...] per round], updated:number}
-let admin = false;
 let dirty = false;
 let zoom = 0.8;
 let hlName = null;
@@ -159,7 +151,7 @@ function render(){
   $('sizer').style.display = has ? 'block' : 'none';
   if (!has) return;
 
-  const canPick = !CONFIG.ONLY_ADMIN_CAN_PICK || admin;
+  const canPick = true;
   let html = '';
   let svg = '';
 
@@ -229,15 +221,59 @@ function pick(r, i, j){
   render();
 }
 
+let editing = false, clickTimer = null;
+
 $('canvas').addEventListener('click', e => {
+  if (e.target.tagName === 'INPUT') return;
   const el = e.target.closest('.s');
   if (!el) return;
-  if (CONFIG.ONLY_ADMIN_CAN_PICK && !admin){
-    setStatus('Only the admin can advance songs.');
-    return;
+  const r = +el.dataset.r, i = +el.dataset.i, j = +el.dataset.j;
+  if (r === 0){
+    // short delay so a double-click (edit) doesn't also advance the song
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(() => pick(r, i, j), 250);
+  } else {
+    pick(r, i, j);
   }
-  pick(+el.dataset.r, +el.dataset.i, +el.dataset.j);
 });
+
+$('canvas').addEventListener('dblclick', e => {
+  if (e.target.tagName === 'INPUT') return;
+  const el = e.target.closest('.s');
+  if (!el || el.dataset.r !== '0') return;
+  clearTimeout(clickTimer);
+  startEdit(el);
+});
+
+function startEdit(el){
+  const k = 2 * (+el.dataset.i) + (+el.dataset.j);
+  editing = true;
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.value = state.seeds[k];
+  inp.style.cssText = 'width:100%;height:100%;border:0;padding:0 6px;font:inherit;font-size:11px;background:var(--card);color:var(--fg);outline:2px solid var(--accent)';
+  el.textContent = '';
+  el.appendChild(inp);
+  inp.focus();
+  inp.select();
+  let done = false;
+  const finish = commit => {
+    if (done) return;
+    done = true;
+    editing = false;
+    const v = inp.value.trim();
+    if (commit && v && v !== state.seeds[k]){
+      state.seeds[k] = v;
+      save();
+    }
+    render();
+  };
+  inp.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') finish(true);
+    else if (ev.key === 'Escape') finish(false);
+  });
+  inp.addEventListener('blur', () => finish(true));
+}
 
 /* ---------- saving & loading ---------- */
 let saveTimer = null;
@@ -271,7 +307,7 @@ function apply(d){
 }
 async function pull(){
   if (!CONFIG.DB_URL) return;
-  if (dirty) return;
+  if (dirty || editing) return;
   try {
     const res = await fetch(dbUrl(), { cache: 'no-store' });
     if (!res.ok) throw new Error(res.status);
@@ -301,7 +337,7 @@ async function init(){
   setInterval(pull, CONFIG.POLL_MS);
 }
 
-/* ---------- admin ---------- */
+/* ---------- setup ---------- */
 function parseLines(){
   return $('ta').value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
 }
@@ -309,18 +345,6 @@ $('adminBtn').onclick = () => {
   const a = $('admin');
   a.style.display = a.style.display === 'block' ? 'none' : 'block';
 };
-function tryUnlock(){
-  if ($('pw').value === CONFIG.ADMIN_PASSWORD){
-    admin = true;
-    $('lock').style.display = 'none';
-    $('tools').style.display = 'block';
-    render();
-  } else {
-    $('pwmsg').textContent = 'Wrong password.';
-  }
-}
-$('unlock').onclick = tryUnlock;
-$('pw').addEventListener('keydown', e => { if (e.key === 'Enter') tryUnlock(); });
 $('ta').addEventListener('input', () => {
   const n = parseLines().length;
   $('count').textContent = n + ' / 512';
