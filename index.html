@@ -139,7 +139,7 @@ let state = null;   // the open tab's record: {id, name, created, updated, seeds
 let S = null;       // structure derived from the number of songs
 let KO = 0, COLW = [], COLX = [], CC = [], totalW = 0, totalH = 0;   // CC[c] = column c is minimised
 let Y = [], gTop = [], gHgt = [];   // Y[r][i] = vertical centre of each main-bracket match
-let dirty = false, editing = false, lastPick = null, boardOn = false;
+let dirty = false, editing = false, lastPick = null, boardOn = false, TOP4 = [];
 let zoom = 0.8;
 let hlName = null;
 
@@ -303,6 +303,18 @@ function entryIdx(r, i, j){
 }
 const entry = (r, i, j) => { const k = entryIdx(r, i, j); return k === null ? null : state.seeds[k]; };
 
+// places 1 to 4 for the little scoreboard next to the champion (a place only shows once it is settled)
+function top4(){
+  const rows = S.R >= 2 ? 4 : 2;
+  const { tiers } = standings();
+  const out = [];
+  for (let rk = 1; rk <= rows; rk++){
+    const t = tiers.find(x => x.rank === rk && x.total === 1);
+    out.push(t ? state.seeds[t.songs[0]] : null);
+  }
+  return out;
+}
+
 // 3rd place: the two semifinal losers play each other (needs at least a semifinal round)
 function thirdIdx(j){
   const p = state.picks[S.R - 2][j];
@@ -353,10 +365,13 @@ function layout(){
   const fam = getComputedStyle(document.body).fontFamily;
   measureCtx.font = '700 11px ' + fam;
   const need = name => Math.min(MAX_W, Math.ceil(measureCtx.measureText(name).width) + 28);
-  const nc = S.R + KO + 1;
+  const lastC = S.R + KO;
+  const nc = lastC + 2;   // rounds, then the champion, then the top-4 column
+  TOP4 = top4();
   CC = [];
-  for (let c = 0; c < nc - 1; c++) CC[c] = isColl(colKey(c));
-  CC[nc - 1] = false;   // the champion column can't be minimised
+  for (let c = 0; c < lastC; c++) CC[c] = isColl(colKey(c));
+  CC[lastC] = false;       // the champion and top-4 columns can't be minimised
+  CC[lastC + 1] = false;
   COLW = new Array(nc).fill(MIN_W);
   if (KO && !CC[0]){
     for (let k = 0; k < S.used; k++) COLW[0] = Math.max(COLW[0], need(state.seeds[k]));
@@ -371,17 +386,18 @@ function layout(){
       }
     }
   }
-  if (S.R >= 2){
+  if (S.R >= 2 && !CC[lastC - 1]){   // the 3rd-place matchup sits under the final, so the final's column must fit its names
     for (let j = 0; j < 2; j++){
       const nm = thirdName(j);
-      if (nm !== null) COLW[nc - 1] = Math.max(COLW[nc - 1], need(nm));
+      if (nm !== null) COLW[lastC - 1] = Math.max(COLW[lastC - 1], need(nm));
     }
   }
+  for (const nm of TOP4) if (nm !== null) COLW[lastC + 1] = Math.max(COLW[lastC + 1], need(nm) + 34);
   const fp = state.picks[S.R - 1][0];
   const champ = fp === null ? null : entry(S.R - 1, 0, fp);
   if (champ !== null){
     measureCtx.font = '700 13px ' + fam;
-    COLW[nc - 1] = Math.max(COLW[nc - 1], Math.min(MAX_W, Math.ceil(measureCtx.measureText(champ).width) + 44));
+    COLW[lastC] = Math.max(COLW[lastC], Math.min(MAX_W, Math.ceil(measureCtx.measureText(champ).width) + 44));
   }
   for (let c = 0; c < nc; c++) if (CC[c]) COLW[c] = COLLAPSED_W;
   let x = 0;
@@ -393,7 +409,7 @@ function layout(){
   const P = H + PAIR_GAP;   // vertical pitch of first-round matches (box height + small gap)
   // minimised tabs get their own band above everything, so they never cover a match or a line
   let strip = 0;
-  for (let c = 0; c < nc - 1; c++) if (CC[c]) strip = Math.max(strip, stripH(c));
+  for (let c = 0; c < lastC; c++) if (CC[c]) strip = Math.max(strip, stripH(c));
   const top0 = strip ? Math.max(TOP, 6 + strip + 12) : TOP;
   const koVisible = KO === 1 && !CC[0];
   let r0 = 0;
@@ -430,7 +446,8 @@ function layout(){
     }
   }
   totalH = top0 + bodyH + 20;
-  if (S.R >= 2) totalH = Math.max(totalH, Y[S.R - 1][0] + THIRD_DY + H / 2 + 20);
+  if (S.R >= 2 && !CC[lastC - 1]) totalH = Math.max(totalH, Y[S.R - 1][0] + THIRD_DY + H / 2 + 20);
+  totalH = Math.max(totalH, Y[S.R - 1][0] - 20 + TOP4.length * SLOT + 2 + 20);
 }
 
 function render(){
@@ -530,10 +547,10 @@ function render(){
   html += `<div class="champ" style="left:${cx}px;width:${COLW[lastC]}px;top:${f.y - 20}px;height:40px;line-height:22px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${champ === null ? '' : esc(champ)}">${champ === null ? '—' : esc(champ)}</div>`;
   if (!CC[S.R - 1 + KO]) svg += `<path class="${fp !== null ? 'done' : ''}" d="M${f.x + COLW[S.R - 1 + KO]} ${f.y}H${cx}"/>`;
 
-  // third-place matchup, under the champion
-  if (S.R >= 2){
-    const ty = f.y + THIRD_DY;
-    html += `<div class="lbl" style="left:${cx}px;width:${COLW[lastC]}px;top:${ty - H / 2 - 20}px">3rd place</div>`;
+  // third-place matchup, under the final
+  if (S.R >= 2 && !CC[lastC - 1]){
+    const tx = COLX[lastC - 1], tw = COLW[lastC - 1], ty = f.y + THIRD_DY;
+    html += `<div class="lbl" style="left:${tx}px;width:${tw}px;top:${ty - H / 2 - 20}px">3rd place</div>`;
     let tslots = '';
     for (let j = 0; j < 2; j++){
       const name = thirdName(j);
@@ -542,8 +559,19 @@ function render(){
       if (hlName && name === hlName) cls += ' hl';
       tslots += slotHtml(name, cls, `data-third="1" data-j="${j}"`);
     }
-    html += `<div class="m" style="left:${cx}px;width:${COLW[lastC]}px;top:${ty - H / 2}px">${tslots}</div>`;
+    html += `<div class="m" style="left:${tx}px;width:${tw}px;top:${ty - H / 2}px">${tslots}</div>`;
   }
+
+  // top 4, to the right of the champion
+  const topC = lastC + 1;
+  let t4 = '';
+  TOP4.forEach((name, n) => {
+    let cls = name === null ? 's empty' : 's';
+    if (n === 0 && name !== null) cls += ' win';
+    t4 += `<div class="${cls}" title="${name === null ? '' : esc(name)}"><b>${ordinal(n + 1)}</b>&nbsp; ${name === null ? '—' : esc(name)}</div>`;
+  });
+  html += `<div class="lbl" style="left:${COLX[topC]}px;width:${COLW[topC]}px;top:6px">Top ${TOP4.length}</div>`;
+  html += `<div class="m" style="left:${COLX[topC]}px;width:${COLW[topC]}px;top:${f.y - 20}px;height:${TOP4.length * SLOT + 2}px">${t4}</div>`;
 
   $('canvas').innerHTML = `<svg width="${totalW}" height="${totalH}">${svg}</svg>` + html;
   applyZoom();
@@ -631,6 +659,7 @@ $('canvas').addEventListener('click', e => {
   const el = e.target.closest('.s');
   if (!el) return;
   if (el.dataset.third !== undefined){ pickThird(+el.dataset.j); return; }
+  if (el.dataset.r === undefined && el.dataset.g === undefined) return;
   const editable = el.dataset.k !== undefined;
   const before = editable ? snapshot() : null;
   let changed;
@@ -642,7 +671,7 @@ $('canvas').addEventListener('click', e => {
 $('canvas').addEventListener('contextmenu', e => {
   if (e.target.tagName === 'INPUT') return;
   const el = e.target.closest('.s');
-  if (!el) return;
+  if (!el || (el.dataset.r === undefined && el.dataset.g === undefined && el.dataset.third === undefined)) return;
   e.preventDefault();
   deselect(el);
 });
