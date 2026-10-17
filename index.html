@@ -76,8 +76,17 @@ svg path.done{stroke:var(--accent);stroke-width:2}
     <textarea id="ta" placeholder="Song 1&#10;Song 2&#10;Song 3&#10;..."></textarea>
     <div class="row">
       <span id="count" style="color:var(--muted)">0 songs</span>
-      <label>Largest knockout group
+      <label>Odd sizes
+        <select id="mode">
+          <option value="byes">Allow byes</option>
+          <option value="nobyes">No byes (everyone plays the knockout)</option>
+        </select>
+      </label>
+      <label id="gLabel">Largest knockout group
         <select id="gsize"><option value="2">2</option><option value="3">3</option><option value="4">4</option></select>
+      </label>
+      <label id="tLabel" style="display:none">Main bracket of
+        <select id="tsize"></select>
       </label>
       <button id="create" class="primary">Create bracket</button>
       <button id="reshuffle">Re-shuffle pairings</button>
@@ -99,7 +108,7 @@ svg path.done{stroke:var(--accent);stroke-width:2}
 const CONFIG = {
   // Your Firebase Realtime Database URL, no trailing slash. Example:
   // "https://my-bracket-default-rtdb.firebaseio.com"
-  DB_URL: "",
+  DB_URL: "https://songs-c0dcf-default-rtdb.firebaseio.com/",
   PATH: "brackets",            // where the brackets live inside the database
   LEGACY_PATH: "bracket",      // where the old single-bracket version saved (copied over once)
   POLL_MS: 8000                // how often visitors check for updates
@@ -107,7 +116,7 @@ const CONFIG = {
 /* ============================================ */
 
 const MIN_SONGS = 2, MAX_SONGS = 4096;
-const MIN_W = 120, MAX_W = 200, G = 30, H = 40, TOP = 34, SLOT = 19, KO_GAP = 10;
+const MIN_W = 120, MAX_W = 300, G = 30, H = 40, TOP = 34, SLOT = 19, KO_GAP = 10;
 
 let state = null;   // the open tab's record: {id, name, created, updated, seeds|null, gsize, picks, gpicks}
 let S = null;       // structure derived from the number of songs
@@ -124,7 +133,32 @@ const setStatus = t => { $('status').textContent = t; };
 /* ---------- bracket structure ---------- */
 // n songs, groups of at most m. The main bracket is the largest power of two <= n.
 // Extra songs are cut in a knockout stage of small groups (each group's winner advances).
-function buildStruct(n, m){
+// main-bracket sizes T (powers of two, >= 2) for which n songs split into exactly T groups of 2-4 songs
+function validTs(n){
+  const out = [];
+  for (let T = 2; 2 * T <= n; T *= 2) if (4 * T >= n) out.push(T);
+  return out;
+}
+// no byes: every song plays in one of T knockout groups, sizes as even as possible
+function buildNoBye(n, T){
+  let R = 0;
+  while ((1 << R) < T) R++;
+  const base = Math.floor(n / T), extra = n % T;
+  const sizes = [];
+  for (let k = 0; k < T; k++) sizes.push(base + (Math.floor((k + 1) * extra / T) - Math.floor(k * extra / T)));
+  const starts = [];
+  let used = 0;
+  for (const sz of sizes){ starts.push(used); used += sz; }
+  const dest = sizes.map((_, k) => k);
+  const slotSrc = dest.map(k => ({ g: k }));
+  const seedLoc = new Array(n);
+  sizes.forEach((sz, k) => { for (let mem = 0; mem < sz; mem++) seedLoc[starts[k] + mem] = { g: k, mem }; });
+  return { n, m: 4, R, T, g: T, sizes, starts, dest, slotSrc, seedLoc, used: n, byes: 0 };
+}
+// n songs. Default: the main bracket is the largest power of two <= n and the extra songs are cut in
+// a knockout stage of small groups (groups of at most m), the rest get byes.
+function buildStruct(n, m, nb, tsz){
+  if (nb && validTs(n).includes(tsz)) return buildNoBye(n, tsz);
   let R = 0;
   while ((2 << R) <= n) R++;
   const T = 1 << R;
@@ -151,7 +185,7 @@ function buildStruct(n, m){
   return { n, m, R, T, g, sizes, starts, dest, slotSrc, seedLoc, used, byes: n - used };
 }
 const hasB = () => !!(state && state.seeds);
-function rebuild(){ S = hasB() ? buildStruct(state.seeds.length, state.gsize) : null; }
+function rebuild(){ S = hasB() ? buildStruct(state.seeds.length, state.gsize, state.nb, state.tsz) : null; }
 
 function emptyPicks(Sx = S){
   const p = [];
@@ -160,15 +194,23 @@ function emptyPicks(Sx = S){
 }
 const emptyG = (Sx = S) => new Array(Sx.g).fill(null);
 
-function applyNew(seeds, m){
+function applyNew(seeds, m, nb, tsz){
   state.seeds = seeds;
   state.gsize = m;
+  state.nb = !!nb;
+  state.tsz = nb ? tsz : 0;
   rebuild();
   state.picks = emptyPicks();
   state.gpicks = emptyG();
   syncSize();
 }
-function syncSize(){ if (state && state.gsize) $('gsize').value = String(state.gsize); }
+function syncSize(){
+  if (hasB()){
+    $('gsize').value = String(state.gsize);
+    $('mode').value = state.nb ? 'nobyes' : 'byes';
+  }
+  updatePlan(hasB() && state.nb ? state.tsz : undefined);
+}
 
 const encodePicks = rec => rec.picks.map(a => a.map(v => v === null ? '-' : v).join('')).join(',');
 const encodeG = rec => rec.gpicks.map(v => v === null ? '-' : v).join('');
@@ -180,7 +222,9 @@ function decodeRec(id, d){
   if (seeds && seeds.length >= MIN_SONGS){
     rec.seeds = seeds;
     rec.gsize = [2, 3, 4].includes(+d.gsize) ? +d.gsize : 2;
-    const Sx = buildStruct(seeds.length, rec.gsize);
+    rec.nb = +d.nb === 1 && validTs(seeds.length).includes(+d.tsz);
+    rec.tsz = rec.nb ? +d.tsz : 0;
+    const Sx = buildStruct(seeds.length, rec.gsize, rec.nb, rec.tsz);
     const p = emptyPicks(Sx);
     const parts = String(d.picks || '').split(',');
     for (let r = 0; r < Sx.R; r++){
@@ -207,6 +251,8 @@ function recToDb(rec){
   if (rec.seeds){
     d.seeds = rec.seeds.join('\n');
     d.gsize = rec.gsize;
+    d.nb = rec.nb ? 1 : 0;
+    d.tsz = rec.tsz || 0;
     d.picks = encodePicks(rec);
     d.gp = encodeG(rec);
   }
@@ -492,7 +538,9 @@ function persistLocal(){
 function fixShape(r){
   if (!r.seeds || r.seeds.length < MIN_SONGS){ r.seeds = null; return r; }
   r.gsize = [2, 3, 4].includes(+r.gsize) ? +r.gsize : 2;
-  const Sx = buildStruct(r.seeds.length, r.gsize);
+  r.nb = !!r.nb && validTs(r.seeds.length).includes(+r.tsz);
+  r.tsz = r.nb ? +r.tsz : 0;
+  const Sx = buildStruct(r.seeds.length, r.gsize, r.nb, r.tsz);
   if (!Array.isArray(r.picks) || r.picks.length !== Sx.R) r.picks = emptyPicks(Sx);
   if (!Array.isArray(r.gpicks) || r.gpicks.length !== Sx.g) r.gpicks = emptyG(Sx);
   return r;
@@ -730,29 +778,68 @@ $('adminBtn').onclick = () => {
   const a = $('admin');
   a.style.display = a.style.display === 'block' ? 'none' : 'block';
 };
-function updatePlan(){
-  const n = parseLines().length, m = +$('gsize').value;
-  $('count').textContent = n + (n === 1 ? ' song' : ' songs');
-  $('count').style.color = n >= MIN_SONGS ? 'var(--accent)' : 'var(--muted)';
+const planN = () => { const n = parseLines().length; return n > 0 ? n : (hasB() ? state.seeds.length : 0); };
+function mixText(b){
+  const counts = {};
+  b.sizes.forEach(sz => { counts[sz] = (counts[sz] || 0) + 1; });
+  return Object.keys(counts).sort((x, y) => y - x).map(sz => `${counts[sz]} group${counts[sz] === 1 ? '' : 's'} of ${sz}`).join(', ');
+}
+function updatePlan(wanted){
+  const nobyes = $('mode').value === 'nobyes';
+  const m = +$('gsize').value;
+  $('gLabel').style.display = nobyes ? 'none' : '';
+  $('tLabel').style.display = nobyes ? '' : 'none';
+  const typed = parseLines().length;
+  $('count').textContent = typed + (typed === 1 ? ' song' : ' songs');
+  $('count').style.color = typed >= MIN_SONGS ? 'var(--accent)' : 'var(--muted)';
+  const n = planN();
   if (n < MIN_SONGS){ $('plan').textContent = ''; return; }
-  const b = buildStruct(n, m);
+  let b;
+  if (nobyes){
+    const ts = validTs(n);
+    if (!ts.length){
+      $('tsize').innerHTML = '';
+      $('plan').textContent = `"No byes" needs at least 4 songs (you have ${n}).`;
+      return;
+    }
+    const want = wanted !== undefined ? +wanted : +$('tsize').value;
+    const chosen = ts.includes(want) ? want : ts[ts.length - 1];
+    $('tsize').innerHTML = ts.map(t => `<option value="${t}"${t === chosen ? ' selected' : ''}>${t} (${mixText(buildNoBye(n, t))})</option>`).join('');
+    b = buildNoBye(n, chosen);
+    const plain = b.sizes.every(sz => sz === 2) ? ' Groups of 2 are just a normal first round.' : '';
+    $('plan').textContent = `${n} songs, no byes: every song plays in one of ${b.g} knockout groups (${mixText(b)}), and each group's winner advances to a main bracket of ${b.T}.${plain}`;
+    return;
+  }
+  b = buildStruct(n, m);
   if (!b.g){
     $('plan').textContent = `${n} songs is a power of two: a straight ${b.T}-song bracket, no knockout stage.`;
     return;
   }
-  const counts = {};
-  b.sizes.forEach(sz => { counts[sz] = (counts[sz] || 0) + 1; });
-  const mix = Object.keys(counts).sort((x, y) => y - x).map(sz => `${counts[sz]} of ${sz}`).join(', ');
-  $('plan').textContent = `${n} songs: main bracket of ${b.T}. ${b.used} songs play off in ${b.g} knockout groups (${mix}), and each group's winner advances. The other ${b.byes} get a bye.`;
+  $('plan').textContent = `${n} songs: main bracket of ${b.T}. ${b.used} songs play off in ${b.g} knockout groups (${mixText(b)}), and each group's winner advances. The other ${b.byes} get a bye.`;
 }
-$('ta').addEventListener('input', updatePlan);
-$('gsize').addEventListener('change', updatePlan);
+// the setup controls, checked against a bracket of n songs
+function readOpts(n){
+  const nb = $('mode').value === 'nobyes';
+  const ts = validTs(n);
+  let tsz = +$('tsize').value;
+  if (!ts.includes(tsz)) tsz = ts[ts.length - 1] || 0;
+  return { m: +$('gsize').value, nb, ok: !nb || ts.length > 0, tsz };
+}
+$('ta').addEventListener('input', () => updatePlan());
+$('gsize').addEventListener('change', () => updatePlan());
+$('mode').addEventListener('change', () => updatePlan());
+$('tsize').addEventListener('change', () => updatePlan());
 
 let confirmCreate = false;
 $('create').onclick = () => {
   const lines = parseLines();
   if (lines.length < MIN_SONGS || lines.length > MAX_SONGS){
     $('msg').textContent = `You pasted ${lines.length} songs. The bracket needs between ${MIN_SONGS} and ${MAX_SONGS}.`;
+    return;
+  }
+  const opts = readOpts(lines.length);
+  if (!opts.ok){
+    $('msg').textContent = `"No byes" needs at least 4 songs (you pasted ${lines.length}).`;
     return;
   }
   if (hasB() && !confirmCreate){
@@ -764,7 +851,7 @@ $('create').onclick = () => {
   }
   confirmCreate = false;
   $('create').textContent = 'Create bracket';
-  applyNew(shuffle(lines), +$('gsize').value);
+  applyNew(shuffle(lines), opts.m, opts.nb, opts.tsz);
   hlName = null;
   $('msg').textContent = 'Bracket created.';
   save();
@@ -772,8 +859,15 @@ $('create').onclick = () => {
 };
 $('reshuffle').onclick = () => {
   if (!hasB()){ $('msg').textContent = 'Create a bracket first.'; return; }
+  const opts = readOpts(state.seeds.length);
+  if (!opts.ok){
+    $('msg').textContent = `"No byes" needs at least 4 songs (this bracket has ${state.seeds.length}).`;
+    return;
+  }
   state.seeds = shuffle(state.seeds);
-  state.gsize = +$('gsize').value;
+  state.gsize = opts.m;
+  state.nb = opts.nb;
+  state.tsz = opts.nb ? opts.tsz : 0;
   rebuild();
   state.picks = emptyPicks();
   state.gpicks = emptyG();
