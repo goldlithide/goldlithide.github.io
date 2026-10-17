@@ -54,6 +54,16 @@ input[type=text],select{background:var(--bg);border:1px solid var(--border);bord
 .lbl.tog:hover{color:var(--accent)}
 .strip{position:absolute;display:flex;align-items:center;justify-content:center;writing-mode:vertical-rl;transform:rotate(180deg);font-size:12px;font-weight:600;color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:6px;cursor:pointer;user-select:none;white-space:nowrap}
 .strip:hover{color:var(--accent);border-color:var(--accent)}
+#board{display:none;flex:1;overflow:auto;padding:16px 20px;background:var(--bg)}
+#boardNote{color:var(--muted);font-size:13px;margin-bottom:16px}
+.tier{margin:0 0 18px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.tier h3{margin:0;display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;font-size:15px}
+.tier .rk{min-width:3.4em;color:var(--accent);font-size:18px;font-weight:800}
+.tier .meta{color:var(--muted);font-size:12px;font-weight:400}
+.tier ul{margin:8px 0 0;padding:0 0 0 20px;columns:260px;column-gap:24px;font-size:13px}
+.tier li{break-inside:avoid;padding:1px 0}
+.tier.top .rk{font-size:24px}
+.tier.top li{font-size:17px;font-weight:600}
 svg{position:absolute;left:0;top:0;pointer-events:none}
 svg path{fill:none;stroke:var(--line);stroke-width:1.5}
 svg path.done{stroke:var(--accent);stroke-width:2}
@@ -69,6 +79,7 @@ svg path.done{stroke:var(--accent);stroke-width:2}
   <button id="zin" title="Zoom in">+</button>
   <button id="gofinal">Go to final</button>
   <input type="text" id="search" placeholder="Find a song (Enter)">
+  <button id="boardBtn">Leaderboard</button>
   <button id="adminBtn">Setup</button>
   <span id="status"></span>
 </header>
@@ -106,6 +117,7 @@ svg path.done{stroke:var(--accent);stroke-width:2}
   <div id="empty">This bracket hasn't been created yet. Use Setup to paste in your songs.</div>
   <div id="sizer"><div id="canvas"></div></div>
 </div>
+<div id="board"><div id="boardList"></div></div>
 
 <script>
 /* ================= SETTINGS ================= */
@@ -120,14 +132,14 @@ const CONFIG = {
 /* ============================================ */
 
 const MIN_SONGS = 2, MAX_SONGS = 4096;
-const COLLAPSED_W = 30;
+const COLLAPSED_W = 30, THIRD_DY = 100;
 const MIN_W = 120, MAX_W = 200, G = 30, H = 40, TOP = 34, SLOT = 19, PAIR_GAP = 6, KO_GAP = 6;
 
 let state = null;   // the open tab's record: {id, name, created, updated, seeds|null, gsize, picks, gpicks}
 let S = null;       // structure derived from the number of songs
 let KO = 0, COLW = [], COLX = [], CC = [], totalW = 0, totalH = 0;   // CC[c] = column c is minimised
 let Y = [], gTop = [], gHgt = [];   // Y[r][i] = vertical centre of each main-bracket match
-let dirty = false, editing = false, lastPick = null;
+let dirty = false, editing = false, lastPick = null, boardOn = false;
 let zoom = 0.8;
 let hlName = null;
 
@@ -207,6 +219,7 @@ function applyNew(seeds, m, nb, tsz){
   rebuild();
   state.picks = emptyPicks();
   state.gpicks = emptyG();
+  state.third = null;
   syncSize();
 }
 function syncSize(){
@@ -247,6 +260,7 @@ function decodeRec(id, d){
       gp[k] = (gstr[k] !== undefined && gstr[k] !== '-' && c >= 0 && c < Sx.sizes[k]) ? c : null;
     }
     rec.gpicks = gp;
+    rec.third = (d.th === '0' || d.th === '1') && Sx.R >= 2 ? Number(d.th) : null;
   }
   return rec;
 }
@@ -260,6 +274,7 @@ function recToDb(rec){
     d.tsz = rec.tsz || 0;
     d.picks = encodePicks(rec);
     d.gp = encodeG(rec);
+    d.th = rec.third === 0 || rec.third === 1 ? String(rec.third) : '-';
   }
   return d;
 }
@@ -274,17 +289,28 @@ function shuffle(a){
 }
 
 // the name sitting in slot j of match i in main round r (null if not decided yet)
-function entry(r, i, j){
+// seed index of the song sitting in slot j of match i in main round r (null if not decided yet)
+function entryIdx(r, i, j){
   if (r === 0){
     const src = S.slotSrc[2 * i + j];
-    if (src.g === undefined) return state.seeds[src.k];
+    if (src.g === undefined) return src.k;
     const w = state.gpicks[src.g];
-    return w === null ? null : state.seeds[S.starts[src.g] + w];
+    return w === null ? null : S.starts[src.g] + w;
   }
   const feeder = 2 * i + j;
   const p = state.picks[r - 1][feeder];
-  return p === null ? null : entry(r - 1, feeder, p);
+  return p === null ? null : entryIdx(r - 1, feeder, p);
 }
+const entry = (r, i, j) => { const k = entryIdx(r, i, j); return k === null ? null : state.seeds[k]; };
+
+// 3rd place: the two semifinal losers play each other (needs at least a semifinal round)
+function thirdIdx(j){
+  const p = state.picks[S.R - 2][j];
+  return p === null ? null : entryIdx(S.R - 2, j, 1 - p);
+}
+const thirdName = j => { const k = thirdIdx(j); return k === null ? null : state.seeds[k]; };
+const thirdKey = () => S.R >= 2 ? JSON.stringify([thirdIdx(0), thirdIdx(1)]) : '';
+function fixThird(before){ if (S.R >= 2 && thirdKey() !== before) state.third = null; }
 
 /* ---------- layout ---------- */
 const labelFor = r => {
@@ -345,6 +371,12 @@ function layout(){
       }
     }
   }
+  if (S.R >= 2){
+    for (let j = 0; j < 2; j++){
+      const nm = thirdName(j);
+      if (nm !== null) COLW[nc - 1] = Math.max(COLW[nc - 1], need(nm));
+    }
+  }
   const fp = state.picks[S.R - 1][0];
   const champ = fp === null ? null : entry(S.R - 1, 0, fp);
   if (champ !== null){
@@ -359,6 +391,10 @@ function layout(){
 
   // vertical layout
   const P = H + PAIR_GAP;   // vertical pitch of first-round matches (box height + small gap)
+  // minimised tabs get their own band above everything, so they never cover a match or a line
+  let strip = 0;
+  for (let c = 0; c < nc - 1; c++) if (CC[c]) strip = Math.max(strip, stripH(c));
+  const top0 = strip ? Math.max(TOP, 6 + strip + 12) : TOP;
   const koVisible = KO === 1 && !CC[0];
   let r0 = 0;
   while (r0 < S.R && CC[r0 + KO]) r0++;   // first main round that is still open
@@ -372,7 +408,7 @@ function layout(){
     const KH = gHgt.reduce((a, b) => a + b, 0) + KO_GAP * (S.g - 1);
     const stretch = KH > MH ? KH / MH : 1;
     bodyH = MH * stretch;
-    let y = TOP + (bodyH - KH) / 2;
+    let y = top0 + (bodyH - KH) / 2;
     for (let k = 0; k < S.g; k++){ gTop[k] = y; y += gHgt[k] + KO_GAP; }
     const gc = k => gTop[k] + gHgt[k] / 2;
     const allGroups = S.g === S.T;   // no byes: every main slot is fed by a group
@@ -381,7 +417,7 @@ function layout(){
       Y[r] = [];
       for (let i = 0; i < n; i++){
         if (allGroups) Y[r][i] = r === 0 ? (gc(2 * i) + gc(2 * i + 1)) / 2 : (Y[r - 1][2 * i] + Y[r - 1][2 * i + 1]) / 2;
-        else Y[r][i] = TOP + (i + 0.5) * P * stretch * (1 << r);
+        else Y[r][i] = top0 + (i + 0.5) * P * stretch * (1 << r);
       }
     }
   } else {
@@ -390,16 +426,15 @@ function layout(){
     for (let r = 0; r < S.R; r++){
       const n = S.T >> (r + 1);
       Y[r] = [];
-      for (let i = 0; i < n; i++) Y[r][i] = TOP + (i + 0.5) * P * Math.pow(2, r - r0);
+      for (let i = 0; i < n; i++) Y[r][i] = top0 + (i + 0.5) * P * Math.pow(2, r - r0);
     }
   }
-  totalH = TOP + bodyH + 20;
-  let strip = 0;
-  for (let c = 0; c < nc - 1; c++) if (CC[c]) strip = Math.max(strip, stripH(c));
-  if (strip) totalH = Math.max(totalH, 6 + strip + 20);
+  totalH = top0 + bodyH + 20;
+  if (S.R >= 2) totalH = Math.max(totalH, Y[S.R - 1][0] + THIRD_DY + H / 2 + 20);
 }
 
 function render(){
+  if (boardOn) renderBoard();
   const has = hasB();
   $('empty').style.display = has ? 'none' : 'block';
   $('sizer').style.display = has ? 'block' : 'none';
@@ -442,7 +477,7 @@ function render(){
       if (r0 < S.R){
         const s = S.dest[k];
         const x1 = COLX[0] + COLW[0];
-        const y1 = w === null ? gTop[k] + gHgt[k] / 2 : gTop[k] + 1 + w * SLOT + SLOT / 2;   // leaves from the winning song
+        const y1 = gTop[k] + gHgt[k] / 2;   // leaves from the middle of the group
         const x2 = COLX[r0 + KO];
         const m0 = s >> 1;
         const jj = r0 === 0 ? (s & 1) : ((m0 >> (r0 - 1)) & 1);   // which slot of that match this group's winner takes
@@ -481,7 +516,7 @@ function render(){
       if (nv < S.R){
         const jj = (i >> (nv - r - 1)) & 1;   // which slot of the later match this winner takes
         const qy = Y[nv][i >> (nv - r)] + (jj ? 9.5 : -9.5);
-        const py = picked === null ? p.y : p.y + (picked ? 9.5 : -9.5);   // leaves from the winning song
+        const py = p.y;   // leaves from the middle of the matchup
         const x1 = p.x + COLW[r + KO], x2 = COLX[nv + KO], xm = (x1 + x2) / 2;
         svg += `<path class="${picked !== null ? 'done' : ''}" d="M${x1} ${py}H${xm}V${qy}H${x2}"/>`;
       }
@@ -493,10 +528,21 @@ function render(){
   const champ = fp === null ? null : entry(S.R - 1, 0, fp);
   const cx = COLX[lastC];
   html += `<div class="champ" style="left:${cx}px;width:${COLW[lastC]}px;top:${f.y - 20}px;height:40px;line-height:22px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${champ === null ? '' : esc(champ)}">${champ === null ? '—' : esc(champ)}</div>`;
-  if (!CC[S.R - 1 + KO]){
-    const fy = fp === null ? f.y : f.y + (fp ? 9.5 : -9.5);
-    const fx = f.x + COLW[S.R - 1 + KO], fm = (fx + cx) / 2;
-    svg += `<path class="${fp !== null ? 'done' : ''}" d="M${fx} ${fy}H${fm}V${f.y}H${cx}"/>`;
+  if (!CC[S.R - 1 + KO]) svg += `<path class="${fp !== null ? 'done' : ''}" d="M${f.x + COLW[S.R - 1 + KO]} ${f.y}H${cx}"/>`;
+
+  // third-place matchup, under the champion
+  if (S.R >= 2){
+    const ty = f.y + THIRD_DY;
+    html += `<div class="lbl" style="left:${cx}px;width:${COLW[lastC]}px;top:${ty - H / 2 - 20}px">3rd place</div>`;
+    let tslots = '';
+    for (let j = 0; j < 2; j++){
+      const name = thirdName(j);
+      let cls = name !== null ? 's can' : 's empty';
+      if (state.third === j) cls += ' win'; else if (state.third !== null) cls += ' lose';
+      if (hlName && name === hlName) cls += ' hl';
+      tslots += slotHtml(name, cls, `data-third="1" data-j="${j}"`);
+    }
+    html += `<div class="m" style="left:${cx}px;width:${COLW[lastC]}px;top:${ty - H / 2}px">${tslots}</div>`;
   }
 
   $('canvas').innerHTML = `<svg width="${totalW}" height="${totalH}">${svg}</svg>` + html;
@@ -520,22 +566,63 @@ function clearChain(r, i, jj){
 function pick(r, i, j){
   if (!hasB() || entry(r, i, j) === null) return false;
   if (state.picks[r][i] === j) return false;
+  const tk = thirdKey();
   state.picks[r][i] = j;
   clearChain(r + 1, i >> 1, i & 1);
+  fixThird(tk);
   save();
   render();
   return true;
 }
 function pickGroup(k, mem){
   if (state.gpicks[k] === mem) return false;
+  const tk = thirdKey();
   state.gpicks[k] = mem;
   const s = S.dest[k];
   clearChain(0, s >> 1, s & 1);
+  fixThird(tk);
   save();
   render();
   return true;
 }
-const snapshot = () => ({ picks: JSON.parse(JSON.stringify(state.picks)), gpicks: state.gpicks.slice() });
+function pickThird(j){
+  if (S.R < 2 || thirdName(j) === null || state.third === j) return false;
+  state.third = j;
+  save();
+  render();
+  return true;
+}
+// the winner of match (r, i) is gone, so any later pick that depended on it goes too (r = -1: a knockout group, i = its main slot)
+function clearAbove(r, i){
+  r++; i >>= 1;
+  while (r < S.R && state.picks[r][i] !== null){ state.picks[r][i] = null; r++; i >>= 1; }
+}
+// right-click: take back the pick in that matchup
+function deselect(el){
+  if (!hasB()) return false;
+  if (el.dataset.third !== undefined){
+    if (state.third === null) return false;
+    state.third = null;
+  } else if (el.dataset.g !== undefined){
+    const k = +el.dataset.g;
+    if (state.gpicks[k] === null) return false;
+    const tk = thirdKey();
+    state.gpicks[k] = null;
+    clearAbove(-1, S.dest[k]);
+    fixThird(tk);
+  } else {
+    const r = +el.dataset.r, i = +el.dataset.i;
+    if (state.picks[r][i] === null) return false;
+    const tk = thirdKey();
+    state.picks[r][i] = null;
+    clearAbove(r, i);
+    fixThird(tk);
+  }
+  save();
+  render();
+  return true;
+}
+const snapshot = () => ({ picks: JSON.parse(JSON.stringify(state.picks)), gpicks: state.gpicks.slice(), third: state.third });
 
 $('canvas').addEventListener('click', e => {
   if (e.target.tagName === 'INPUT') return;
@@ -543,12 +630,21 @@ $('canvas').addEventListener('click', e => {
   if (tg){ toggleCol(tg.dataset.col); return; }
   const el = e.target.closest('.s');
   if (!el) return;
+  if (el.dataset.third !== undefined){ pickThird(+el.dataset.j); return; }
   const editable = el.dataset.k !== undefined;
   const before = editable ? snapshot() : null;
   let changed;
   if (el.dataset.g !== undefined) changed = pickGroup(+el.dataset.g, +el.dataset.m);
   else changed = pick(+el.dataset.r, +el.dataset.i, +el.dataset.j);
   if (editable && changed) lastPick = { k: +el.dataset.k, snap: before, time: Date.now() };
+});
+
+$('canvas').addEventListener('contextmenu', e => {
+  if (e.target.tagName === 'INPUT') return;
+  const el = e.target.closest('.s');
+  if (!el) return;
+  e.preventDefault();
+  deselect(el);
 });
 
 // double-click a song in the first stage to edit it (and undo the pick the first click made)
@@ -560,6 +656,7 @@ $('canvas').addEventListener('dblclick', e => {
   if (lastPick && lastPick.k === k && Date.now() - lastPick.time < 1000){
     state.picks = lastPick.snap.picks;
     state.gpicks = lastPick.snap.gpicks;
+    state.third = lastPick.snap.third;
     lastPick = null;
     save();
     render();
@@ -635,6 +732,7 @@ function fixShape(r){
   const Sx = buildStruct(r.seeds.length, r.gsize, r.nb, r.tsz);
   if (!Array.isArray(r.picks) || r.picks.length !== Sx.R) r.picks = emptyPicks(Sx);
   if (!Array.isArray(r.gpicks) || r.gpicks.length !== Sx.g) r.gpicks = emptyG(Sx);
+  r.third = (r.third === 0 || r.third === 1) && Sx.R >= 2 ? r.third : null;
   return r;
 }
 function loadLocalStore(){
@@ -814,7 +912,7 @@ async function removeTab(id){
     // keep at least one tab so the database never ends up empty: just reset it
     rec.name = 'Bracket 1';
     rec.seeds = null;
-    delete rec.picks; delete rec.gpicks; delete rec.gsize;
+    delete rec.picks; delete rec.gpicks; delete rec.gsize; delete rec.third;
     rebuild();
     save(rec);
     renderTabs();
@@ -965,6 +1063,7 @@ $('reshuffle').onclick = () => {
   resetCols();
   state.picks = emptyPicks();
   state.gpicks = emptyG();
+  state.third = null;
   $('msg').textContent = 'Pairings re-shuffled and picks cleared.';
   save();
   render();
@@ -973,6 +1072,7 @@ $('resetPicks').onclick = () => {
   if (!hasB()) return;
   state.picks = emptyPicks();
   state.gpicks = emptyG();
+  state.third = null;
   $('msg').textContent = 'Picks cleared.';
   save();
   render();
@@ -988,6 +1088,77 @@ $('deleteTab').onclick = () => {
   }
   confirmDel = false;
   removeTab(cur);
+};
+
+/* ---------- leaderboard ---------- */
+const ordinal = n => { const t = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (t[(v - 20) % 10] || t[v] || t[0]); };
+
+// Everyone knocked out in the same round ties. A song's place only depends on the round it lost in, so it is final as soon as it is out.
+function standings(){
+  const rows = [];   // {idx, rank, why, total}
+  const add = (idx, rank, why, total) => { if (idx !== null) rows.push({ idx, rank, why, total }); };
+  for (let k = 0; k < S.g; k++){
+    const w = state.gpicks[k];
+    if (w === null) continue;
+    for (let mem = 0; mem < S.sizes[k]; mem++){
+      if (mem !== w) add(S.starts[k] + mem, S.T + 1, 'Lost in the knockout stage', S.n - S.T);
+    }
+  }
+  for (let r = 0; r < S.R; r++){
+    for (let i = 0; i < state.picks[r].length; i++){
+      const p = state.picks[r][i];
+      if (p === null) continue;
+      const winner = entryIdx(r, i, p), loser = entryIdx(r, i, 1 - p);
+      if (r === S.R - 1){
+        add(winner, 1, 'Champion', 1);
+        add(loser, 2, 'Runner-up', 1);
+      } else if (r === S.R - 2){
+        if (state.third === null) add(loser, 3, 'Lost in the semifinals', 2);
+      } else {
+        add(loser, 1 + (S.T >> (r + 1)), 'Lost in ' + labelFor(r), S.T >> (r + 1));
+      }
+    }
+  }
+  if (S.R >= 2 && state.third !== null){
+    add(thirdIdx(state.third), 3, 'Won the 3rd-place match', 1);
+    add(thirdIdx(1 - state.third), 4, 'Lost the 3rd-place match', 1);
+  }
+  const placed = new Set(rows.map(x => x.idx));
+  const alive = [];
+  for (let k = 0; k < S.n; k++) if (!placed.has(k)) alive.push(k);
+  const map = new Map();
+  for (const x of rows){
+    const key = x.rank + '|' + x.why;
+    if (!map.has(key)) map.set(key, { rank: x.rank, why: x.why, total: x.total, songs: [] });
+    map.get(key).songs.push(x.idx);
+  }
+  const tiers = [...map.values()].sort((a, b) => a.rank - b.rank || (a.why < b.why ? -1 : 1));
+  tiers.forEach(t => t.songs.sort((a, b) => a - b));
+  return { tiers, alive };
+}
+function renderBoard(){
+  const box = $('boardList');
+  if (!hasB()){ box.innerHTML = '<div id="boardNote">No bracket has been created yet.</div>'; return; }
+  const { tiers, alive } = standings();
+  const li = k => `<li>${esc(state.seeds[k])}</li>`;
+  const songs = n => n + (n === 1 ? ' song' : ' songs');
+  let html = `<div id="boardNote">${S.n - alive.length} of ${S.n} songs placed so far. Songs knocked out in the same round are tied.</div>`;
+  if (alive.length){
+    html += `<section class="tier"><h3><span class="rk">—</span><span class="meta">${songs(alive.length)} · still in the running</span></h3><ul>${alive.map(li).join('')}</ul></section>`;
+  }
+  for (const t of tiers){
+    const rk = (t.total > 1 ? 'T-' : '') + ordinal(t.rank);
+    const count = t.songs.length < t.total ? `${t.songs.length} of ${t.total} songs` : songs(t.songs.length);
+    html += `<section class="tier${t.rank <= 2 ? ' top' : ''}"><h3><span class="rk">${rk}</span><span class="meta">${t.total > 1 ? count + ' · ' : ''}${esc(t.why)}</span></h3><ul>${t.songs.map(li).join('')}</ul></section>`;
+  }
+  box.innerHTML = html;
+}
+$('boardBtn').onclick = () => {
+  boardOn = !boardOn;
+  $('view').style.display = boardOn ? 'none' : '';
+  $('board').style.display = boardOn ? 'block' : 'none';
+  $('boardBtn').textContent = boardOn ? 'Show bracket' : 'Leaderboard';
+  if (boardOn) renderBoard();
 };
 
 /* ---------- toolbar ---------- */
