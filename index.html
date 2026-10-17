@@ -441,9 +441,12 @@ function render(){
       html += `<div class="m ko" style="left:${COLX[0]}px;width:${COLW[0]}px;top:${gTop[k]}px;height:${gHgt[k]}px">${slots}</div>`;
       if (r0 < S.R){
         const s = S.dest[k];
-        const x1 = COLX[0] + COLW[0], y1 = gTop[k] + gHgt[k] / 2;
+        const x1 = COLX[0] + COLW[0];
+        const y1 = w === null ? gTop[k] + gHgt[k] / 2 : gTop[k] + 1 + w * SLOT + SLOT / 2;   // leaves from the winning song
         const x2 = COLX[r0 + KO];
-        const y2 = r0 === 0 ? Y[0][s >> 1] + ((s & 1) ? 9.5 : -9.5) : Y[r0][(s >> 1) >> r0];
+        const m0 = s >> 1;
+        const jj = r0 === 0 ? (s & 1) : ((m0 >> (r0 - 1)) & 1);   // which slot of that match this group's winner takes
+        const y2 = Y[r0][m0 >> r0] + (jj ? 9.5 : -9.5);
         const xm = (x1 + x2) / 2;
         svg += `<path class="${w !== null ? 'done' : ''}" d="M${x1} ${y1}C${xm} ${y1} ${xm} ${y2} ${x2} ${y2}"/>`;
       }
@@ -476,9 +479,11 @@ function render(){
       html += `<div class="m" style="left:${p.x}px;width:${COLW[r + KO]}px;top:${p.y - H / 2}px">${slots}</div>`;
 
       if (nv < S.R){
-        const qy = Y[nv][i >> (nv - r)];
+        const jj = (i >> (nv - r - 1)) & 1;   // which slot of the later match this winner takes
+        const qy = Y[nv][i >> (nv - r)] + (jj ? 9.5 : -9.5);
+        const py = picked === null ? p.y : p.y + (picked ? 9.5 : -9.5);   // leaves from the winning song
         const x1 = p.x + COLW[r + KO], x2 = COLX[nv + KO], xm = (x1 + x2) / 2;
-        svg += `<path class="${picked !== null ? 'done' : ''}" d="M${x1} ${p.y}H${xm}V${qy}H${x2}"/>`;
+        svg += `<path class="${picked !== null ? 'done' : ''}" d="M${x1} ${py}H${xm}V${qy}H${x2}"/>`;
       }
     }
   }
@@ -488,7 +493,11 @@ function render(){
   const champ = fp === null ? null : entry(S.R - 1, 0, fp);
   const cx = COLX[lastC];
   html += `<div class="champ" style="left:${cx}px;width:${COLW[lastC]}px;top:${f.y - 20}px;height:40px;line-height:22px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${champ === null ? '' : esc(champ)}">${champ === null ? '—' : esc(champ)}</div>`;
-  if (!CC[S.R - 1 + KO]) svg += `<path class="${fp !== null ? 'done' : ''}" d="M${f.x + COLW[S.R - 1 + KO]} ${f.y}H${cx}"/>`;
+  if (!CC[S.R - 1 + KO]){
+    const fy = fp === null ? f.y : f.y + (fp ? 9.5 : -9.5);
+    const fx = f.x + COLW[S.R - 1 + KO], fm = (fx + cx) / 2;
+    svg += `<path class="${fp !== null ? 'done' : ''}" d="M${fx} ${fy}H${fm}V${f.y}H${cx}"/>`;
+  }
 
   $('canvas').innerHTML = `<svg width="${totalW}" height="${totalH}">${svg}</svg>` + html;
   applyZoom();
