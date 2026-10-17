@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>512 Song Bracket</title>
+<title>Song Bracket</title>
 <style>
 :root{
   --bg:#f7f5f2; --fg:#201a24; --muted:#7a7080; --card:#ffffff; --border:#d9d3dc;
@@ -18,12 +18,18 @@ html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column}
 header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--card)}
 header h1{font-size:17px;margin:0 8px 0 0;font-weight:700}
-button,input,textarea{font:inherit;color:inherit}
+button,input,textarea,select{font:inherit;color:inherit}
 button{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:5px 11px;cursor:pointer}
 button:hover{border-color:var(--accent)}
-button:focus-visible,input:focus-visible,textarea:focus-visible,.s:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,.s:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-input[type=text],input[type=password]{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:5px 9px}
+#tabs{display:flex;gap:3px;align-items:flex-end;padding:8px 10px 0;background:var(--bg);border-bottom:1px solid var(--border);overflow-x:auto;white-space:nowrap}
+.tab{flex:none;max-width:240px;overflow:hidden;text-overflow:ellipsis;padding:6px 14px;font-size:13px;color:var(--muted);background:var(--card);border:1px solid var(--border);border-bottom:none;border-radius:8px 8px 0 0;cursor:pointer;user-select:none}
+.tab:hover{color:var(--fg)}
+.tab.on{color:var(--accent);font-weight:700;border-top:2px solid var(--accent)}
+.tab.add{font-weight:700;padding:6px 12px}
+.tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+input[type=text],select{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:5px 9px}
 #status{margin-left:auto;color:var(--muted);font-size:12px}
 #admin{display:none;padding:12px 14px;border-bottom:1px solid var(--border);background:var(--card)}
 #admin textarea{width:100%;height:150px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;resize:vertical}
@@ -32,7 +38,8 @@ input[type=text],input[type=password]{background:var(--bg);border:1px solid var(
 #view{flex:1;overflow:auto;position:relative;background:var(--bg)}
 #empty{padding:40px;text-align:center;color:var(--muted)}
 #canvas{position:absolute;left:0;top:0;transform-origin:0 0}
-.m{position:absolute;width:170px;height:40px;border:1px solid var(--border);border-radius:5px;background:var(--card);overflow:hidden}
+.m{position:absolute;height:40px;border:1px solid var(--border);border-radius:5px;background:var(--card);overflow:hidden}
+.m.ko{border-style:dashed}
 .s{height:19px;padding:0 6px;line-height:19px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}
 .s + .s{border-top:1px solid var(--border)}
 .s.can{cursor:pointer}
@@ -41,8 +48,8 @@ input[type=text],input[type=password]{background:var(--bg);border:1px solid var(
 .s.win{background:var(--accentbg);color:var(--accent);font-weight:700}
 .s.lose{color:var(--lose);text-decoration:line-through}
 .s.hl{background:var(--hl);color:var(--fg)}
-.lbl{position:absolute;width:170px;text-align:center;font-size:12px;font-weight:600;color:var(--muted)}
-.champ{position:absolute;width:170px;text-align:center;font-weight:700;padding:8px 6px;border:2px solid var(--accent);border-radius:8px;background:var(--card);color:var(--accent);font-size:13px}
+.lbl{position:absolute;text-align:center;font-size:12px;font-weight:600;color:var(--muted)}
+.champ{position:absolute;text-align:center;font-weight:700;padding:8px 6px;border:2px solid var(--accent);border-radius:8px;background:var(--card);color:var(--accent);font-size:13px}
 svg{position:absolute;left:0;top:0;pointer-events:none}
 svg path{fill:none;stroke:var(--line);stroke-width:1.5}
 svg path.done{stroke:var(--accent);stroke-width:2}
@@ -50,8 +57,10 @@ svg path.done{stroke:var(--accent);stroke-width:2}
 </head>
 <body>
 
+<nav id="tabs" role="tablist"></nav>
+
 <header>
-  <h1>512 Song Bracket</h1>
+  <h1>Song Bracket</h1>
   <button id="zout" title="Zoom out">−</button>
   <button id="zin" title="Zoom in">+</button>
   <button id="gofinal">Go to final</button>
@@ -62,20 +71,26 @@ svg path.done{stroke:var(--accent);stroke-width:2}
 
 <section id="admin">
   <div id="tools">
-    <div style="margin-bottom:6px;color:var(--muted)">Paste exactly 512 songs, one per line. Pairings are randomized when you create the bracket.</div>
+    <div id="setupFor" style="font-weight:600;margin-bottom:6px"></div>
+    <div style="margin-bottom:6px;color:var(--muted)">Paste your songs, one per line (any number from 2 up). If the number isn't a power of two, a knockout stage trims the field first. Pairings are randomized when you create the bracket.</div>
     <textarea id="ta" placeholder="Song 1&#10;Song 2&#10;Song 3&#10;..."></textarea>
     <div class="row">
-      <span id="count" style="color:var(--muted)">0 / 512</span>
+      <span id="count" style="color:var(--muted)">0 songs</span>
+      <label>Largest knockout group
+        <select id="gsize"><option value="2">2</option><option value="3">3</option><option value="4">4</option></select>
+      </label>
       <button id="create" class="primary">Create bracket</button>
       <button id="reshuffle">Re-shuffle pairings</button>
       <button id="resetPicks">Clear all picks</button>
+      <button id="deleteTab">Delete this tab</button>
       <span id="msg"></span>
     </div>
+    <div id="plan" style="margin-top:8px;color:var(--muted);font-size:13px"></div>
   </div>
 </section>
 
 <div id="view">
-  <div id="empty">The bracket hasn't been created yet.</div>
+  <div id="empty">This bracket hasn't been created yet. Use Setup to paste in your songs.</div>
   <div id="sizer"><div id="canvas"></div></div>
 </div>
 
@@ -84,47 +99,120 @@ svg path.done{stroke:var(--accent);stroke-width:2}
 const CONFIG = {
   // Your Firebase Realtime Database URL, no trailing slash. Example:
   // "https://my-bracket-default-rtdb.firebaseio.com"
-  DB_URL: "https://songs-c0dcf-default-rtdb.firebaseio.com/",
-  PATH: "bracket",             // where the data lives inside the database
+  DB_URL: "",
+  PATH: "brackets",            // where the brackets live inside the database
+  LEGACY_PATH: "bracket",      // where the old single-bracket version saved (copied over once)
   POLL_MS: 8000                // how often visitors check for updates
 };
 /* ============================================ */
 
-const N = 512, ROUNDS = 9, W = 170, G = 30, H = 40, TOP = 34;
-const LABELS = ["Round of 512","Round of 256","Round of 128","Round of 64","Round of 32",
-                "Round of 16","Quarterfinals","Semifinals","Final"];
-const TOTAL_W = 10 * (W + G) - G;   // 9 rounds + champion column
-const TOTAL_H = TOP + 256 * H + 20;
+const MIN_SONGS = 2, MAX_SONGS = 4096;
+const MIN_W = 120, MAX_W = 200, G = 30, H = 40, TOP = 34, SLOT = 19, KO_GAP = 10;
 
-let state = null;      // {seeds:[512], picks:[[...] per round], updated:number}
-let dirty = false;
+let state = null;   // the open tab's record: {id, name, created, updated, seeds|null, gsize, picks, gpicks}
+let S = null;       // structure derived from the number of songs
+let KO = 0, COLW = [], COLX = [], totalW = 0, totalH = 0;
+let mainTop = 0, gTop = [], gHgt = [];
+let dirty = false, editing = false, lastPick = null;
 let zoom = 0.8;
 let hlName = null;
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const dbUrl = () => CONFIG.DB_URL.replace(/\/$/, "") + "/" + CONFIG.PATH + ".json";
 const setStatus = t => { $('status').textContent = t; };
 
-/* ---------- data helpers ---------- */
-function emptyPicks(){
-  const p = [];
-  for (let r = 0; r < ROUNDS; r++) p.push(new Array(256 >> r).fill(null));
-  return p;
-}
-const encodePicks = () => state.picks.map(a => a.map(v => v === null ? '-' : v).join('')).join(',');
-function decodePicks(s){
-  const p = emptyPicks();
-  const parts = String(s || "").split(',');
-  for (let r = 0; r < ROUNDS; r++){
-    const str = parts[r] || "";
-    for (let i = 0; i < p[r].length; i++){
-      const c = str[i];
-      p[r][i] = (c === '0' || c === '1') ? Number(c) : null;
-    }
+/* ---------- bracket structure ---------- */
+// n songs, groups of at most m. The main bracket is the largest power of two <= n.
+// Extra songs are cut in a knockout stage of small groups (each group's winner advances).
+function buildStruct(n, m){
+  let R = 0;
+  while ((2 << R) <= n) R++;
+  const T = 1 << R;
+  const sizes = [];
+  let left = n - T;
+  while (left > 0){
+    const e = Math.min(m - 1, left);
+    sizes.push(e + 1);
+    left -= e;
   }
+  const g = sizes.length;
+  const starts = [];
+  let used = 0;
+  for (const sz of sizes){ starts.push(used); used += sz; }
+  const dest = sizes.map((_, k) => Math.floor((k + 0.5) * T / g));   // main-bracket slot each group feeds
+  const slotSrc = new Array(T);
+  dest.forEach((s, k) => { slotSrc[s] = { g: k }; });
+  const seedLoc = new Array(n);
+  let nextBye = used;
+  for (let s = 0; s < T; s++){
+    if (!slotSrc[s]){ slotSrc[s] = { k: nextBye }; seedLoc[nextBye] = { s }; nextBye++; }
+  }
+  sizes.forEach((sz, k) => { for (let mem = 0; mem < sz; mem++) seedLoc[starts[k] + mem] = { g: k, mem }; });
+  return { n, m, R, T, g, sizes, starts, dest, slotSrc, seedLoc, used, byes: n - used };
+}
+const hasB = () => !!(state && state.seeds);
+function rebuild(){ S = hasB() ? buildStruct(state.seeds.length, state.gsize) : null; }
+
+function emptyPicks(Sx = S){
+  const p = [];
+  for (let r = 0; r < Sx.R; r++) p.push(new Array(Sx.T >> (r + 1)).fill(null));
   return p;
 }
+const emptyG = (Sx = S) => new Array(Sx.g).fill(null);
+
+function applyNew(seeds, m){
+  state.seeds = seeds;
+  state.gsize = m;
+  rebuild();
+  state.picks = emptyPicks();
+  state.gpicks = emptyG();
+  syncSize();
+}
+function syncSize(){ if (state && state.gsize) $('gsize').value = String(state.gsize); }
+
+const encodePicks = rec => rec.picks.map(a => a.map(v => v === null ? '-' : v).join('')).join(',');
+const encodeG = rec => rec.gpicks.map(v => v === null ? '-' : v).join('');
+
+// turn what the database holds into a tab record
+function decodeRec(id, d){
+  const rec = { id, name: String(d.name || 'Bracket'), created: +d.created || 0, updated: +d.updated || 0, seeds: null, synced: true };
+  const seeds = d.seeds ? String(d.seeds).split('\n') : null;
+  if (seeds && seeds.length >= MIN_SONGS){
+    rec.seeds = seeds;
+    rec.gsize = [2, 3, 4].includes(+d.gsize) ? +d.gsize : 2;
+    const Sx = buildStruct(seeds.length, rec.gsize);
+    const p = emptyPicks(Sx);
+    const parts = String(d.picks || '').split(',');
+    for (let r = 0; r < Sx.R; r++){
+      const str = parts[r] || '';
+      for (let i = 0; i < p[r].length; i++){
+        const c = str[i];
+        p[r][i] = (c === '0' || c === '1') ? Number(c) : null;
+      }
+    }
+    rec.picks = p;
+    const gp = emptyG(Sx);
+    const gstr = String(d.gp || '');
+    for (let k = 0; k < gp.length; k++){
+      const c = Number(gstr[k]);
+      gp[k] = (gstr[k] !== undefined && gstr[k] !== '-' && c >= 0 && c < Sx.sizes[k]) ? c : null;
+    }
+    rec.gpicks = gp;
+  }
+  return rec;
+}
+// the record as it is stored in the database
+function recToDb(rec){
+  const d = { name: rec.name, created: rec.created, updated: rec.updated };
+  if (rec.seeds){
+    d.seeds = rec.seeds.join('\n');
+    d.gsize = rec.gsize;
+    d.picks = encodePicks(rec);
+    d.gp = encodeG(rec);
+  }
+  return d;
+}
+
 function shuffle(a){
   a = a.slice();
   for (let i = a.length - 1; i > 0; i--){
@@ -133,35 +221,114 @@ function shuffle(a){
   }
   return a;
 }
+
+// the name sitting in slot j of match i in main round r (null if not decided yet)
 function entry(r, i, j){
-  if (r === 0) return state.seeds[2 * i + j];
+  if (r === 0){
+    const src = S.slotSrc[2 * i + j];
+    if (src.g === undefined) return state.seeds[src.k];
+    const w = state.gpicks[src.g];
+    return w === null ? null : state.seeds[S.starts[src.g] + w];
+  }
   const feeder = 2 * i + j;
   const p = state.picks[r - 1][feeder];
   return p === null ? null : entry(r - 1, feeder, p);
 }
 
 /* ---------- layout ---------- */
+const labelFor = r => {
+  const e = S.T >> r;
+  return e === 2 ? 'Final' : e === 4 ? 'Semifinals' : e === 8 ? 'Quarterfinals' : 'Round of ' + e;
+};
+
 function pos(r, i){
-  return { x: r * (W + G), y: TOP + (i + 0.5) * H * (1 << r) };
+  return { x: COLX[r + KO], y: mainTop + (i + 0.5) * H * (1 << r) };
+}
+
+let measureCtx = null;
+function layout(){
+  KO = S.g > 0 ? 1 : 0;
+  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+  const fam = getComputedStyle(document.body).fontFamily;
+  measureCtx.font = '700 11px ' + fam;
+  const need = name => Math.min(MAX_W, Math.ceil(measureCtx.measureText(name).width) + 28);
+  const nc = S.R + KO + 1;
+  COLW = new Array(nc).fill(MIN_W);
+  if (KO){
+    for (let k = 0; k < S.used; k++) COLW[0] = Math.max(COLW[0], need(state.seeds[k]));
+  }
+  for (let r = 0; r < S.R; r++){
+    const n = S.T >> (r + 1);
+    for (let i = 0; i < n; i++){
+      for (let j = 0; j < 2; j++){
+        const name = entry(r, i, j);
+        if (name !== null) COLW[r + KO] = Math.max(COLW[r + KO], need(name));
+      }
+    }
+  }
+  const fp = state.picks[S.R - 1][0];
+  const champ = fp === null ? null : entry(S.R - 1, 0, fp);
+  if (champ !== null){
+    measureCtx.font = '700 13px ' + fam;
+    COLW[nc - 1] = Math.max(COLW[nc - 1], Math.min(MAX_W, Math.ceil(measureCtx.measureText(champ).width) + 44));
+  }
+  let x = 0;
+  COLX = [];
+  for (let c = 0; c < nc; c++){ COLX[c] = x; x += COLW[c] + G; }
+  totalW = x - G;
+
+  // vertical: main bracket and knockout column are each centred in the taller of the two
+  const MH = (S.T / 2) * H;
+  gHgt = S.sizes.map(sz => SLOT * sz + 2);
+  const KH = S.g ? gHgt.reduce((a, b) => a + b, 0) + KO_GAP * (S.g - 1) : 0;
+  const bodyH = Math.max(MH, KH);
+  mainTop = TOP + (bodyH - MH) / 2;
+  let y = TOP + (bodyH - KH) / 2;
+  gTop = [];
+  for (let k = 0; k < S.g; k++){ gTop[k] = y; y += gHgt[k] + KO_GAP; }
+  totalH = TOP + bodyH + 20;
 }
 
 function render(){
-  const has = !!state;
+  const has = hasB();
   $('empty').style.display = has ? 'none' : 'block';
   $('sizer').style.display = has ? 'block' : 'none';
   if (!has) return;
 
-  const canPick = true;
+  layout();
+  const lastC = S.R + KO;
   let html = '';
   let svg = '';
+  const lbl = (c, text) => `<div class="lbl" style="left:${COLX[c]}px;width:${COLW[c]}px;top:6px">${text}</div>`;
 
-  // round labels
-  for (let r = 0; r < ROUNDS; r++){
-    html += `<div class="lbl" style="left:${r * (W + G)}px;top:6px">${LABELS[r]}</div>`;
+  if (KO) html += lbl(0, 'Knockout stage');
+  for (let r = 0; r < S.R; r++) html += lbl(r + KO, labelFor(r));
+  html += lbl(lastC, 'Champion');
+
+  const slotHtml = (name, cls, attrs) =>
+    `<div class="${cls}" ${attrs} title="${name === null ? '' : esc(name)}">${name === null ? '—' : esc(name)}</div>`;
+
+  // knockout groups
+  for (let k = 0; k < S.g; k++){
+    const w = state.gpicks[k];
+    let slots = '';
+    for (let mem = 0; mem < S.sizes[k]; mem++){
+      const sk = S.starts[k] + mem, name = state.seeds[sk];
+      let cls = 's can';
+      if (w === mem) cls += ' win'; else if (w !== null) cls += ' lose';
+      if (hlName && name === hlName) cls += ' hl';
+      slots += slotHtml(name, cls, `data-g="${k}" data-m="${mem}" data-k="${sk}"`);
+    }
+    html += `<div class="m ko" style="left:${COLX[0]}px;width:${COLW[0]}px;top:${gTop[k]}px;height:${gHgt[k]}px">${slots}</div>`;
+    const s = S.dest[k], q = pos(0, s >> 1);
+    const x1 = COLX[0] + COLW[0], y1 = gTop[k] + gHgt[k] / 2;
+    const x2 = q.x, y2 = q.y + ((s & 1) ? 9.5 : -9.5), xm = (x1 + x2) / 2;
+    svg += `<path class="${w !== null ? 'done' : ''}" d="M${x1} ${y1}C${xm} ${y1} ${xm} ${y2} ${x2} ${y2}"/>`;
   }
 
-  for (let r = 0; r < ROUNDS; r++){
-    const n = 256 >> r;
+  // main bracket
+  for (let r = 0; r < S.R; r++){
+    const n = S.T >> (r + 1);
     for (let i = 0; i < n; i++){
       const p = pos(r, i);
       const picked = state.picks[r][i];
@@ -169,84 +336,101 @@ function render(){
       for (let j = 0; j < 2; j++){
         const name = entry(r, i, j);
         let cls = 's';
-        if (name === null) cls += ' empty';
-        else if (canPick) cls += ' can';
-        if (picked === j) cls += ' win';
-        else if (picked !== null) cls += ' lose';
+        if (name !== null) cls += ' can'; else cls += ' empty';
+        if (picked === j) cls += ' win'; else if (picked !== null) cls += ' lose';
         if (hlName && name === hlName) cls += ' hl';
-        slots += `<div class="${cls}" data-r="${r}" data-i="${i}" data-j="${j}" title="${name === null ? '' : esc(name)}">${name === null ? '—' : esc(name)}</div>`;
+        let attrs = `data-r="${r}" data-i="${i}" data-j="${j}"`;
+        if (r === 0){
+          const src = S.slotSrc[2 * i + j];
+          if (src.g === undefined) attrs += ` data-k="${src.k}"`;
+        }
+        slots += slotHtml(name, cls, attrs);
       }
-      html += `<div class="m" style="left:${p.x}px;top:${p.y - H / 2}px">${slots}</div>`;
+      html += `<div class="m" style="left:${p.x}px;width:${COLW[r + KO]}px;top:${p.y - H / 2}px">${slots}</div>`;
 
-      // connector to next round
-      if (r < 8){
+      if (r < S.R - 1){
         const q = pos(r + 1, i >> 1);
-        const x1 = p.x + W, x2 = q.x;
-        const xm = (x1 + x2) / 2;
+        const x1 = p.x + COLW[r + KO], x2 = q.x, xm = (x1 + x2) / 2;
         svg += `<path class="${picked !== null ? 'done' : ''}" d="M${x1} ${p.y}H${xm}V${q.y}H${x2}"/>`;
       }
     }
   }
 
   // champion
-  const f = pos(8, 0), fp = state.picks[8][0];
-  const champ = fp === null ? null : entry(8, 0, fp);
-  const cx = 9 * (W + G);
-  html += `<div class="lbl" style="left:${cx}px;top:6px">Champion</div>`;
-  html += `<div class="champ" style="left:${cx}px;top:${f.y - 20}px;height:40px;line-height:22px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${champ === null ? '' : esc(champ)}">${champ === null ? '—' : esc(champ)}</div>`;
-  svg += `<path class="${fp !== null ? 'done' : ''}" d="M${f.x + W} ${f.y}H${cx}"/>`;
+  const f = pos(S.R - 1, 0), fp = state.picks[S.R - 1][0];
+  const champ = fp === null ? null : entry(S.R - 1, 0, fp);
+  const cx = COLX[lastC];
+  html += `<div class="champ" style="left:${cx}px;width:${COLW[lastC]}px;top:${f.y - 20}px;height:40px;line-height:22px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${champ === null ? '' : esc(champ)}">${champ === null ? '—' : esc(champ)}</div>`;
+  svg += `<path class="${fp !== null ? 'done' : ''}" d="M${f.x + COLW[S.R - 1 + KO]} ${f.y}H${cx}"/>`;
 
-  $('canvas').innerHTML = `<svg width="${TOTAL_W}" height="${TOTAL_H}">${svg}</svg>` + html;
+  $('canvas').innerHTML = `<svg width="${totalW}" height="${totalH}">${svg}</svg>` + html;
   applyZoom();
 }
 
 function applyZoom(){
   $('canvas').style.transform = `scale(${zoom})`;
-  $('sizer').style.width = TOTAL_W * zoom + 'px';
-  $('sizer').style.height = TOTAL_H * zoom + 'px';
+  $('sizer').style.width = totalW * zoom + 'px';
+  $('sizer').style.height = totalH * zoom + 'px';
 }
 
 /* ---------- picking ---------- */
-function pick(r, i, j){
-  if (!state || entry(r, i, j) === null) return;
-  if (state.picks[r][i] === j) return;
-  state.picks[r][i] = j;
-  let ci = i;
-  for (let rr = r + 1; rr < ROUNDS; rr++){
-    const ni = ci >> 1;
-    if (state.picks[rr][ni] === (ci & 1)){ state.picks[rr][ni] = null; ci = ni; }
+// slot jj of match (r, i) just changed: clear any later pick that depended on it
+function clearChain(r, i, jj){
+  while (r < S.R){
+    if (state.picks[r][i] === jj){ state.picks[r][i] = null; jj = i & 1; i >>= 1; r++; }
     else break;
   }
+}
+function pick(r, i, j){
+  if (!hasB() || entry(r, i, j) === null) return false;
+  if (state.picks[r][i] === j) return false;
+  state.picks[r][i] = j;
+  clearChain(r + 1, i >> 1, i & 1);
   save();
   render();
+  return true;
 }
-
-let editing = false, clickTimer = null;
+function pickGroup(k, mem){
+  if (state.gpicks[k] === mem) return false;
+  state.gpicks[k] = mem;
+  const s = S.dest[k];
+  clearChain(0, s >> 1, s & 1);
+  save();
+  render();
+  return true;
+}
+const snapshot = () => ({ picks: JSON.parse(JSON.stringify(state.picks)), gpicks: state.gpicks.slice() });
 
 $('canvas').addEventListener('click', e => {
   if (e.target.tagName === 'INPUT') return;
   const el = e.target.closest('.s');
   if (!el) return;
-  const r = +el.dataset.r, i = +el.dataset.i, j = +el.dataset.j;
-  if (r === 0){
-    // short delay so a double-click (edit) doesn't also advance the song
-    clearTimeout(clickTimer);
-    clickTimer = setTimeout(() => pick(r, i, j), 250);
-  } else {
-    pick(r, i, j);
-  }
+  const editable = el.dataset.k !== undefined;
+  const before = editable ? snapshot() : null;
+  let changed;
+  if (el.dataset.g !== undefined) changed = pickGroup(+el.dataset.g, +el.dataset.m);
+  else changed = pick(+el.dataset.r, +el.dataset.i, +el.dataset.j);
+  if (editable && changed) lastPick = { k: +el.dataset.k, snap: before, time: Date.now() };
 });
 
+// double-click a song in the first stage to edit it (and undo the pick the first click made)
 $('canvas').addEventListener('dblclick', e => {
   if (e.target.tagName === 'INPUT') return;
-  const el = e.target.closest('.s');
-  if (!el || el.dataset.r !== '0') return;
-  clearTimeout(clickTimer);
-  startEdit(el);
+  let el = e.target.closest('.s');
+  if (!el || el.dataset.k === undefined) return;
+  const k = +el.dataset.k;
+  if (lastPick && lastPick.k === k && Date.now() - lastPick.time < 1000){
+    state.picks = lastPick.snap.picks;
+    state.gpicks = lastPick.snap.gpicks;
+    lastPick = null;
+    save();
+    render();
+    el = document.querySelector(`.s[data-k="${k}"]`);
+  }
+  if (el) startEdit(el, k);
 });
 
-function startEdit(el){
-  const k = 2 * (+el.dataset.i) + (+el.dataset.j);
+function startEdit(el, k){
   editing = true;
   const inp = document.createElement('input');
   inp.type = 'text';
@@ -275,47 +459,134 @@ function startEdit(el){
   inp.addEventListener('blur', () => finish(true));
 }
 
-/* ---------- saving & loading ---------- */
+/* ---------- tabs, saving & loading ---------- */
+const url = path => CONFIG.DB_URL.replace(/\/$/, '') + '/' + path + '.json';
+const recUrl = id => url(CONFIG.PATH + '/' + id);
+let store = {}, order = [], cur = null;   // all tabs by id, their display order, the open one
+const pending = new Set();                // ids waiting to be written to the database
 let saveTimer = null;
-function save(){
-  state.updated = Date.now();
-  try { localStorage.setItem('bracket512', JSON.stringify(state)); } catch (e) {}
+
+const newId = () => 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+function sortOrder(){
+  order = Object.keys(store).sort((a, b) => (store[a].created - store[b].created) || (a < b ? -1 : 1));
+}
+function ensureTab(){
+  if (!Object.keys(store).length){
+    store.main = { id: 'main', name: 'Bracket 1', created: 0, updated: 0, seeds: null };
+  }
+  sortOrder();
+  if (!store[cur]) cur = order[0];
+}
+function finishLoad(){
+  ensureTab();
+  state = store[cur];
+  rebuild();
+  syncSize();
+  renderTabs();
+  render();
+}
+
+function persistLocal(){
+  try { localStorage.setItem('brackets512', JSON.stringify({ cur, recs: store })); } catch (e) {}
+}
+function fixShape(r){
+  if (!r.seeds || r.seeds.length < MIN_SONGS){ r.seeds = null; return r; }
+  r.gsize = [2, 3, 4].includes(+r.gsize) ? +r.gsize : 2;
+  const Sx = buildStruct(r.seeds.length, r.gsize);
+  if (!Array.isArray(r.picks) || r.picks.length !== Sx.R) r.picks = emptyPicks(Sx);
+  if (!Array.isArray(r.gpicks) || r.gpicks.length !== Sx.g) r.gpicks = emptyG(Sx);
+  return r;
+}
+function loadLocalStore(){
+  try {
+    const s = localStorage.getItem('brackets512');
+    if (s){
+      const o = JSON.parse(s);
+      for (const id of Object.keys(o.recs || {})){
+        const r = o.recs[id];
+        if (r && typeof r === 'object') store[id] = fixShape(Object.assign({ id, name: 'Bracket', created: 0, updated: 0 }, r));
+      }
+      cur = o.cur;
+      return;
+    }
+    const old = localStorage.getItem('bracket512');   // the single-bracket version
+    if (old){
+      const o = JSON.parse(old);
+      if (o && o.seeds) store.main = fixShape({ id: 'main', name: 'Bracket 1', created: 0, updated: o.updated || 0, seeds: o.seeds, gsize: o.gsize, picks: o.picks, gpicks: o.gpicks });
+    }
+  } catch (e) {}
+}
+
+function save(rec = state){
+  rec.updated = Date.now();
+  persistLocal();
   if (!CONFIG.DB_URL){ setStatus('Saved in this browser only (no database set)'); return; }
+  pending.add(rec.id);
   dirty = true;
   setStatus('Saving…');
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(push, 400);
+  saveTimer = setTimeout(pushAll, 400);
 }
-async function push(){
-  const body = { seeds: state.seeds.join('\n'), picks: encodePicks(), updated: state.updated };
-  try {
-    const res = await fetch(dbUrl(), { method: 'PUT', body: JSON.stringify(body) });
-    if (!res.ok) throw new Error(res.status);
-    dirty = false;
-    setStatus('Saved ✓ ' + new Date().toLocaleTimeString());
-  } catch (e){
+async function pushAll(){
+  let failed = false;
+  for (const id of [...pending]){
+    const rec = store[id];
+    if (!rec){ pending.delete(id); continue; }
+    const u = rec.updated;
+    try {
+      const res = await fetch(recUrl(id), { method: 'PUT', body: JSON.stringify(recToDb(rec)) });
+      if (!res.ok) throw new Error(res.status);
+      rec.synced = true;
+      if (rec.updated === u) pending.delete(id);
+    } catch (e){ failed = true; }
+  }
+  dirty = pending.size > 0;
+  if (failed){
     setStatus('Save failed, retrying…');
-    saveTimer = setTimeout(push, 4000);
+    saveTimer = setTimeout(pushAll, 4000);
+  } else if (!dirty){
+    setStatus('Saved ✓ ' + new Date().toLocaleTimeString());
   }
 }
-function apply(d){
-  state = {
-    seeds: String(d.seeds || '').split('\n'),
-    picks: decodePicks(d.picks),
-    updated: d.updated || 0
-  };
+
+// bring the database's version of the tabs into the page; returns true if anything changed
+function mergeRemote(all){
+  let changed = false;
+  for (const id of Object.keys(all)){
+    const d = all[id];
+    if (!d || typeof d !== 'object') continue;
+    const ex = store[id];
+    if (!ex || ex.updated !== (+d.updated || 0) || ex.name !== String(d.name || 'Bracket')){
+      if (id === cur && editing) continue;
+      store[id] = decodeRec(id, d);
+      changed = true;
+    } else {
+      ex.synced = true;
+    }
+  }
+  for (const id of Object.keys(store)){
+    if (!(id in all) && !pending.has(id)){ delete store[id]; changed = true; }
+  }
+  return changed;
 }
 async function pull(){
   if (!CONFIG.DB_URL) return;
   if (dirty || editing) return;
   try {
-    const res = await fetch(dbUrl(), { cache: 'no-store' });
+    const res = await fetch(url(CONFIG.PATH), { cache: 'no-store' });
     if (!res.ok) throw new Error(res.status);
-    const d = await res.json();
-    if (d && d.seeds && (!state || d.updated !== state.updated)){
-      apply(d);
-      render();
+    let all = await res.json();
+    if (all === null){
+      // first run with tabs: copy over a bracket saved by the old single-bracket version
+      const lr = await fetch(url(CONFIG.LEGACY_PATH), { cache: 'no-store' });
+      const old = lr.ok ? await lr.json() : null;
+      if (old && old.seeds){
+        const moved = Object.assign({}, old, { name: 'Bracket 1', created: 0 });
+        const pr = await fetch(recUrl('main'), { method: 'PUT', body: JSON.stringify(moved) });
+        if (pr.ok) all = { main: moved };
+      }
     }
+    if (all && mergeRemote(all)) finishLoad();
     setStatus('Up to date ' + new Date().toLocaleTimeString());
   } catch (e){
     setStatus('Could not reach the database');
@@ -323,19 +594,133 @@ async function pull(){
 }
 async function init(){
   if (!CONFIG.DB_URL){
-    try {
-      const s = localStorage.getItem('bracket512');
-      if (s) state = JSON.parse(s);
-    } catch (e) {}
+    loadLocalStore();
+    finishLoad();
     setStatus('No database set: saving in this browser only');
-    render();
     return;
   }
   setStatus('Loading…');
   await pull();
-  render();
+  finishLoad();
   setInterval(pull, CONFIG.POLL_MS);
 }
+
+/* ---------- tabs ---------- */
+function renderTabs(){
+  $('tabs').innerHTML = order.map(id =>
+    `<div class="tab${id === cur ? ' on' : ''}" role="tab" tabindex="0" data-id="${id}" title="Double-click to rename">${esc(store[id].name)}</div>`
+  ).join('') + `<div class="tab add" id="addTab" role="button" tabindex="0" title="New bracket">+</div>`;
+  $('setupFor').textContent = 'Setup for: ' + store[cur].name;
+  $('deleteTab').textContent = order.length > 1 ? 'Delete this tab' : 'Reset this tab';
+}
+function switchTab(id){
+  if (!store[id] || id === cur) return;
+  cur = id;
+  state = store[id];
+  rebuild();
+  lastPick = null;
+  hlName = null;
+  $('msg').textContent = '';
+  syncSize();
+  renderTabs();
+  render();
+  $('view').scrollTo(0, 0);
+  persistLocal();
+}
+function addTab(){
+  const id = newId();
+  const now = Date.now();
+  store[id] = { id, name: 'Bracket ' + (order.length + 1), created: now, updated: now, seeds: null };
+  sortOrder();
+  switchTab(id);
+  save(store[id]);
+  $('admin').style.display = 'block';
+}
+function startRename(id){
+  const b = document.querySelector(`#tabs .tab[data-id="${id}"]`);
+  if (!b) return;
+  editing = true;
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.maxLength = 40;
+  inp.value = store[id].name;
+  inp.style.cssText = 'width:150px;border:0;padding:0;background:transparent;font:inherit;color:var(--fg);outline:2px solid var(--accent)';
+  b.textContent = '';
+  b.appendChild(inp);
+  inp.focus();
+  inp.select();
+  let done = false;
+  const finish = commit => {
+    if (done) return;
+    done = true;
+    editing = false;
+    const v = inp.value.trim();
+    if (commit && v && v !== store[id].name){
+      store[id].name = v;
+      save(store[id]);
+    }
+    renderTabs();
+  };
+  inp.addEventListener('keydown', ev => {
+    ev.stopPropagation();
+    if (ev.key === 'Enter') finish(true);
+    else if (ev.key === 'Escape') finish(false);
+  });
+  inp.addEventListener('blur', () => finish(true));
+}
+async function removeTab(id){
+  const rec = store[id];
+  if (order.length <= 1){
+    // keep at least one tab so the database never ends up empty: just reset it
+    rec.name = 'Bracket 1';
+    rec.seeds = null;
+    delete rec.picks; delete rec.gpicks; delete rec.gsize;
+    rebuild();
+    save(rec);
+    renderTabs();
+    render();
+    return;
+  }
+  if (CONFIG.DB_URL){
+    try {
+      const res = await fetch(recUrl(id), { method: 'DELETE' });
+      if (!res.ok) throw new Error(res.status);
+    } catch (e){ setStatus('Could not delete (database unreachable)'); return; }
+  }
+  const idx = order.indexOf(id);
+  pending.delete(id);
+  dirty = pending.size > 0;
+  delete store[id];
+  sortOrder();
+  cur = order[Math.max(0, idx - 1)];
+  state = store[cur];
+  rebuild();
+  lastPick = null;
+  hlName = null;
+  syncSize();
+  persistLocal();
+  renderTabs();
+  render();
+}
+
+$('tabs').addEventListener('click', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.target.closest('#addTab')){ addTab(); return; }
+  const b = e.target.closest('.tab[data-id]');
+  if (b) switchTab(b.dataset.id);
+});
+$('tabs').addEventListener('dblclick', e => {
+  if (e.target.tagName === 'INPUT') return;
+  const b = e.target.closest('.tab[data-id]');
+  if (b) startRename(b.dataset.id);
+});
+$('tabs').addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  e.preventDefault();
+  if (e.target.id === 'addTab') addTab();
+  else if (e.target.dataset && e.target.dataset.id) switchTab(e.target.dataset.id);
+});
 
 /* ---------- setup ---------- */
 function parseLines(){
@@ -345,20 +730,32 @@ $('adminBtn').onclick = () => {
   const a = $('admin');
   a.style.display = a.style.display === 'block' ? 'none' : 'block';
 };
-$('ta').addEventListener('input', () => {
-  const n = parseLines().length;
-  $('count').textContent = n + ' / 512';
-  $('count').style.color = n === 512 ? 'var(--accent)' : 'var(--muted)';
-});
+function updatePlan(){
+  const n = parseLines().length, m = +$('gsize').value;
+  $('count').textContent = n + (n === 1 ? ' song' : ' songs');
+  $('count').style.color = n >= MIN_SONGS ? 'var(--accent)' : 'var(--muted)';
+  if (n < MIN_SONGS){ $('plan').textContent = ''; return; }
+  const b = buildStruct(n, m);
+  if (!b.g){
+    $('plan').textContent = `${n} songs is a power of two: a straight ${b.T}-song bracket, no knockout stage.`;
+    return;
+  }
+  const counts = {};
+  b.sizes.forEach(sz => { counts[sz] = (counts[sz] || 0) + 1; });
+  const mix = Object.keys(counts).sort((x, y) => y - x).map(sz => `${counts[sz]} of ${sz}`).join(', ');
+  $('plan').textContent = `${n} songs: main bracket of ${b.T}. ${b.used} songs play off in ${b.g} knockout groups (${mix}), and each group's winner advances. The other ${b.byes} get a bye.`;
+}
+$('ta').addEventListener('input', updatePlan);
+$('gsize').addEventListener('change', updatePlan);
 
 let confirmCreate = false;
 $('create').onclick = () => {
   const lines = parseLines();
-  if (lines.length !== N){
-    $('msg').textContent = `You pasted ${lines.length} songs. The bracket needs exactly 512.`;
+  if (lines.length < MIN_SONGS || lines.length > MAX_SONGS){
+    $('msg').textContent = `You pasted ${lines.length} songs. The bracket needs between ${MIN_SONGS} and ${MAX_SONGS}.`;
     return;
   }
-  if (state && !confirmCreate){
+  if (hasB() && !confirmCreate){
     confirmCreate = true;
     $('create').textContent = 'Click again to replace the current bracket';
     $('msg').textContent = '';
@@ -367,45 +764,65 @@ $('create').onclick = () => {
   }
   confirmCreate = false;
   $('create').textContent = 'Create bracket';
-  state = { seeds: shuffle(lines), picks: emptyPicks(), updated: 0 };
+  applyNew(shuffle(lines), +$('gsize').value);
   hlName = null;
   $('msg').textContent = 'Bracket created.';
   save();
   render();
 };
 $('reshuffle').onclick = () => {
-  if (!state){ $('msg').textContent = 'Create a bracket first.'; return; }
+  if (!hasB()){ $('msg').textContent = 'Create a bracket first.'; return; }
   state.seeds = shuffle(state.seeds);
+  state.gsize = +$('gsize').value;
+  rebuild();
   state.picks = emptyPicks();
+  state.gpicks = emptyG();
   $('msg').textContent = 'Pairings re-shuffled and picks cleared.';
   save();
   render();
 };
 $('resetPicks').onclick = () => {
-  if (!state) return;
+  if (!hasB()) return;
   state.picks = emptyPicks();
+  state.gpicks = emptyG();
   $('msg').textContent = 'Picks cleared.';
   save();
   render();
+};
+
+let confirmDel = false;
+$('deleteTab').onclick = () => {
+  if (!confirmDel){
+    confirmDel = true;
+    $('deleteTab').textContent = 'Click again to confirm';
+    setTimeout(() => { confirmDel = false; if (state) renderTabs(); }, 5000);
+    return;
+  }
+  confirmDel = false;
+  removeTab(cur);
 };
 
 /* ---------- toolbar ---------- */
 $('zin').onclick = () => { zoom = Math.min(1.6, zoom + 0.1); applyZoom(); };
 $('zout').onclick = () => { zoom = Math.max(0.2, zoom - 0.1); applyZoom(); };
 $('gofinal').onclick = () => {
-  const v = $('view'), p = pos(8, 0);
-  v.scrollTo({ left: (p.x + W / 2) * zoom - v.clientWidth / 2, top: (p.y) * zoom - v.clientHeight / 2, behavior: 'smooth' });
+  if (!hasB()) return;
+  const v = $('view'), p = pos(S.R - 1, 0);
+  v.scrollTo({ left: (p.x + COLW[S.R - 1 + KO] / 2) * zoom - v.clientWidth / 2, top: p.y * zoom - v.clientHeight / 2, behavior: 'smooth' });
 };
 $('search').addEventListener('keydown', e => {
-  if (e.key !== 'Enter' || !state) return;
+  if (e.key !== 'Enter' || !hasB()) return;
   const q = e.target.value.trim().toLowerCase();
   if (!q){ hlName = null; render(); return; }
   const k = state.seeds.findIndex(s => s.toLowerCase().includes(q));
   if (k < 0){ setStatus('No song matches that search.'); return; }
   hlName = state.seeds[k];
   render();
-  const v = $('view'), p = pos(0, k >> 1);
-  v.scrollTo({ left: p.x * zoom - 40, top: p.y * zoom - v.clientHeight / 2, behavior: 'smooth' });
+  const loc = S.seedLoc[k];
+  const x = loc.g !== undefined ? COLX[0] : pos(0, loc.s >> 1).x;
+  const y = loc.g !== undefined ? gTop[loc.g] + gHgt[loc.g] / 2 : pos(0, loc.s >> 1).y;
+  const v = $('view');
+  v.scrollTo({ left: x * zoom - 40, top: y * zoom - v.clientHeight / 2, behavior: 'smooth' });
 });
 
 init();
