@@ -108,7 +108,7 @@ svg path.done{stroke:var(--accent);stroke-width:2}
 const CONFIG = {
   // Your Firebase Realtime Database URL, no trailing slash. Example:
   // "https://my-bracket-default-rtdb.firebaseio.com"
-  DB_URL: "https://songs-c0dcf-default-rtdb.firebaseio.com/",
+  DB_URL: "https://songs-c0dcf-default-rtdb.firebaseio.com",
   PATH: "brackets",            // where the brackets live inside the database
   LEGACY_PATH: "bracket",      // where the old single-bracket version saved (copied over once)
   POLL_MS: 8000                // how often visitors check for updates
@@ -116,7 +116,7 @@ const CONFIG = {
 /* ============================================ */
 
 const MIN_SONGS = 2, MAX_SONGS = 4096;
-const MIN_W = 120, MAX_W = 200, G = 30, H = 40, TOP = 34, SLOT = 19, KO_GAP = 10;
+const MIN_W = 120, MAX_W = 200, G = 30, H = 40, TOP = 34, SLOT = 19, PAIR_GAP = 6, KO_GAP = 6;
 
 let state = null;   // the open tab's record: {id, name, created, updated, seeds|null, gsize, picks, gpicks}
 let S = null;       // structure derived from the number of songs
@@ -324,7 +324,8 @@ function layout(){
   totalW = x - G;
 
   // vertical: the knockout column sets the height and the main bracket is spread out to match it
-  const MH = (S.T / 2) * H;
+  const P = H + PAIR_GAP;   // vertical pitch of first-round matches (box height + small gap)
+  const MH = (S.T / 2) * P;
   gHgt = S.sizes.map(sz => SLOT * sz + 2);
   const KH = S.g ? gHgt.reduce((a, b) => a + b, 0) + KO_GAP * (S.g - 1) : 0;
   const stretch = KH > MH ? KH / MH : 1;
@@ -340,7 +341,7 @@ function layout(){
     Y[r] = [];
     for (let i = 0; i < n; i++){
       if (allGroups) Y[r][i] = r === 0 ? (gc(2 * i) + gc(2 * i + 1)) / 2 : (Y[r - 1][2 * i] + Y[r - 1][2 * i + 1]) / 2;
-      else Y[r][i] = TOP + (i + 0.5) * H * stretch * (1 << r);
+      else Y[r][i] = TOP + (i + 0.5) * P * stretch * (1 << r);
     }
   }
   totalH = TOP + bodyH + 20;
