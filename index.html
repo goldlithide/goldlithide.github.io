@@ -116,12 +116,12 @@ const CONFIG = {
 /* ============================================ */
 
 const MIN_SONGS = 2, MAX_SONGS = 4096;
-const MIN_W = 120, MAX_W = 300, G = 30, H = 40, TOP = 34, SLOT = 19, KO_GAP = 10;
+const MIN_W = 120, MAX_W = 200, G = 30, H = 40, TOP = 34, SLOT = 19, KO_GAP = 10;
 
 let state = null;   // the open tab's record: {id, name, created, updated, seeds|null, gsize, picks, gpicks}
 let S = null;       // structure derived from the number of songs
 let KO = 0, COLW = [], COLX = [], totalW = 0, totalH = 0;
-let mainTop = 0, gTop = [], gHgt = [];
+let Y = [], gTop = [], gHgt = [];   // Y[r][i] = vertical centre of each main-bracket match
 let dirty = false, editing = false, lastPick = null;
 let zoom = 0.8;
 let hlName = null;
@@ -288,7 +288,7 @@ const labelFor = r => {
 };
 
 function pos(r, i){
-  return { x: COLX[r + KO], y: mainTop + (i + 0.5) * H * (1 << r) };
+  return { x: COLX[r + KO], y: Y[r][i] };
 }
 
 let measureCtx = null;
@@ -323,15 +323,26 @@ function layout(){
   for (let c = 0; c < nc; c++){ COLX[c] = x; x += COLW[c] + G; }
   totalW = x - G;
 
-  // vertical: main bracket and knockout column are each centred in the taller of the two
+  // vertical: the knockout column sets the height and the main bracket is spread out to match it
   const MH = (S.T / 2) * H;
   gHgt = S.sizes.map(sz => SLOT * sz + 2);
   const KH = S.g ? gHgt.reduce((a, b) => a + b, 0) + KO_GAP * (S.g - 1) : 0;
-  const bodyH = Math.max(MH, KH);
-  mainTop = TOP + (bodyH - MH) / 2;
+  const stretch = KH > MH ? KH / MH : 1;
+  const bodyH = MH * stretch;
   let y = TOP + (bodyH - KH) / 2;
   gTop = [];
   for (let k = 0; k < S.g; k++){ gTop[k] = y; y += gHgt[k] + KO_GAP; }
+  const gc = k => gTop[k] + gHgt[k] / 2;
+  const allGroups = S.g === S.T;   // no byes: every main slot is fed by a group
+  Y = [];
+  for (let r = 0; r < S.R; r++){
+    const n = S.T >> (r + 1);
+    Y[r] = [];
+    for (let i = 0; i < n; i++){
+      if (allGroups) Y[r][i] = r === 0 ? (gc(2 * i) + gc(2 * i + 1)) / 2 : (Y[r - 1][2 * i] + Y[r - 1][2 * i + 1]) / 2;
+      else Y[r][i] = TOP + (i + 0.5) * H * stretch * (1 << r);
+    }
+  }
   totalH = TOP + bodyH + 20;
 }
 
