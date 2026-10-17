@@ -50,6 +50,10 @@ input[type=text],select{background:var(--bg);border:1px solid var(--border);bord
 .s.hl{background:var(--hl);color:var(--fg)}
 .lbl{position:absolute;text-align:center;font-size:12px;font-weight:600;color:var(--muted)}
 .champ{position:absolute;text-align:center;font-weight:700;padding:8px 6px;border:2px solid var(--accent);border-radius:8px;background:var(--card);color:var(--accent);font-size:13px}
+.lbl.tog{cursor:pointer;user-select:none}
+.lbl.tog:hover{color:var(--accent)}
+.strip{position:absolute;display:flex;align-items:center;justify-content:center;writing-mode:vertical-rl;transform:rotate(180deg);font-size:12px;font-weight:600;color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:6px;cursor:pointer;user-select:none;white-space:nowrap}
+.strip:hover{color:var(--accent);border-color:var(--accent)}
 svg{position:absolute;left:0;top:0;pointer-events:none}
 svg path{fill:none;stroke:var(--line);stroke-width:1.5}
 svg path.done{stroke:var(--accent);stroke-width:2}
@@ -116,11 +120,12 @@ const CONFIG = {
 /* ============================================ */
 
 const MIN_SONGS = 2, MAX_SONGS = 4096;
+const COLLAPSED_W = 30;
 const MIN_W = 120, MAX_W = 200, G = 30, H = 40, TOP = 34, SLOT = 19, PAIR_GAP = 6, KO_GAP = 6;
 
 let state = null;   // the open tab's record: {id, name, created, updated, seeds|null, gsize, picks, gpicks}
 let S = null;       // structure derived from the number of songs
-let KO = 0, COLW = [], COLX = [], totalW = 0, totalH = 0;
+let KO = 0, COLW = [], COLX = [], CC = [], totalW = 0, totalH = 0;   // CC[c] = column c is minimised
 let Y = [], gTop = [], gHgt = [];   // Y[r][i] = vertical centre of each main-bracket match
 let dirty = false, editing = false, lastPick = null;
 let zoom = 0.8;
@@ -286,6 +291,30 @@ const labelFor = r => {
   const e = S.T >> r;
   return e === 2 ? 'Final' : e === 4 ? 'Semifinals' : e === 8 ? 'Quarterfinals' : 'Round of ' + e;
 };
+const colLabel = c => (KO && c === 0) ? 'Knockout stage' : labelFor(c - KO);
+const colKey = c => (KO && c === 0) ? 'ko' : String(c - KO);
+const stripH = c => Math.round(44 + colLabel(c).length * 7);
+
+// Minimised columns are a viewing preference: kept per tab in this browser only, never saved to the database.
+let colState = {};
+try { colState = JSON.parse(localStorage.getItem('bracket512-cols') || '{}') || {}; } catch (e) { colState = {}; }
+const saveCols = () => { try { localStorage.setItem('bracket512-cols', JSON.stringify(colState)); } catch (e) {} };
+const isColl = key => (colState[cur] || []).includes(String(key));
+function toggleCol(key){
+  key = String(key);
+  const a = colState[cur] || (colState[cur] = []);
+  const i = a.indexOf(key);
+  if (i < 0) a.push(key); else a.splice(i, 1);
+  saveCols();
+  render();
+}
+function expandCol(key){
+  const a = colState[cur];
+  if (!a) return;
+  const i = a.indexOf(String(key));
+  if (i >= 0){ a.splice(i, 1); saveCols(); }
+}
+function resetCols(){ delete colState[cur]; saveCols(); }
 
 function pos(r, i){
   return { x: COLX[r + KO], y: Y[r][i] };
@@ -299,11 +328,15 @@ function layout(){
   measureCtx.font = '700 11px ' + fam;
   const need = name => Math.min(MAX_W, Math.ceil(measureCtx.measureText(name).width) + 28);
   const nc = S.R + KO + 1;
+  CC = [];
+  for (let c = 0; c < nc - 1; c++) CC[c] = isColl(colKey(c));
+  CC[nc - 1] = false;   // the champion column can't be minimised
   COLW = new Array(nc).fill(MIN_W);
-  if (KO){
+  if (KO && !CC[0]){
     for (let k = 0; k < S.used; k++) COLW[0] = Math.max(COLW[0], need(state.seeds[k]));
   }
   for (let r = 0; r < S.R; r++){
+    if (CC[r + KO]) continue;
     const n = S.T >> (r + 1);
     for (let i = 0; i < n; i++){
       for (let j = 0; j < 2; j++){
@@ -318,33 +351,52 @@ function layout(){
     measureCtx.font = '700 13px ' + fam;
     COLW[nc - 1] = Math.max(COLW[nc - 1], Math.min(MAX_W, Math.ceil(measureCtx.measureText(champ).width) + 44));
   }
+  for (let c = 0; c < nc; c++) if (CC[c]) COLW[c] = COLLAPSED_W;
   let x = 0;
   COLX = [];
-  for (let c = 0; c < nc; c++){ COLX[c] = x; x += COLW[c] + G; }
+  for (let c = 0; c < nc; c++){ COLX[c] = x; x += COLW[c] + ((CC[c] && CC[c + 1]) ? 6 : G); }
   totalW = x - G;
 
-  // vertical: the knockout column sets the height and the main bracket is spread out to match it
+  // vertical layout
   const P = H + PAIR_GAP;   // vertical pitch of first-round matches (box height + small gap)
-  const MH = (S.T / 2) * P;
+  const koVisible = KO === 1 && !CC[0];
+  let r0 = 0;
+  while (r0 < S.R && CC[r0 + KO]) r0++;   // first main round that is still open
   gHgt = S.sizes.map(sz => SLOT * sz + 2);
-  const KH = S.g ? gHgt.reduce((a, b) => a + b, 0) + KO_GAP * (S.g - 1) : 0;
-  const stretch = KH > MH ? KH / MH : 1;
-  const bodyH = MH * stretch;
-  let y = TOP + (bodyH - KH) / 2;
   gTop = [];
-  for (let k = 0; k < S.g; k++){ gTop[k] = y; y += gHgt[k] + KO_GAP; }
-  const gc = k => gTop[k] + gHgt[k] / 2;
-  const allGroups = S.g === S.T;   // no byes: every main slot is fed by a group
   Y = [];
-  for (let r = 0; r < S.R; r++){
-    const n = S.T >> (r + 1);
-    Y[r] = [];
-    for (let i = 0; i < n; i++){
-      if (allGroups) Y[r][i] = r === 0 ? (gc(2 * i) + gc(2 * i + 1)) / 2 : (Y[r - 1][2 * i] + Y[r - 1][2 * i + 1]) / 2;
-      else Y[r][i] = TOP + (i + 0.5) * P * stretch * (1 << r);
+  let bodyH;
+  if (koVisible){
+    // the knockout column sets the height and the main bracket is spread out to match it
+    const MH = (S.T / 2) * P;
+    const KH = gHgt.reduce((a, b) => a + b, 0) + KO_GAP * (S.g - 1);
+    const stretch = KH > MH ? KH / MH : 1;
+    bodyH = MH * stretch;
+    let y = TOP + (bodyH - KH) / 2;
+    for (let k = 0; k < S.g; k++){ gTop[k] = y; y += gHgt[k] + KO_GAP; }
+    const gc = k => gTop[k] + gHgt[k] / 2;
+    const allGroups = S.g === S.T;   // no byes: every main slot is fed by a group
+    for (let r = 0; r < S.R; r++){
+      const n = S.T >> (r + 1);
+      Y[r] = [];
+      for (let i = 0; i < n; i++){
+        if (allGroups) Y[r][i] = r === 0 ? (gc(2 * i) + gc(2 * i + 1)) / 2 : (Y[r - 1][2 * i] + Y[r - 1][2 * i + 1]) / 2;
+        else Y[r][i] = TOP + (i + 0.5) * P * stretch * (1 << r);
+      }
+    }
+  } else {
+    // minimised early rounds: the first open round takes the base spacing, which tightens every round after it
+    bodyH = (r0 < S.R ? S.T >> (r0 + 1) : 1) * P;
+    for (let r = 0; r < S.R; r++){
+      const n = S.T >> (r + 1);
+      Y[r] = [];
+      for (let i = 0; i < n; i++) Y[r][i] = TOP + (i + 0.5) * P * Math.pow(2, r - r0);
     }
   }
   totalH = TOP + bodyH + 20;
+  let strip = 0;
+  for (let c = 0; c < nc - 1; c++) if (CC[c]) strip = Math.max(strip, stripH(c));
+  if (strip) totalH = Math.max(totalH, 6 + strip + 20);
 }
 
 function render(){
@@ -355,37 +407,54 @@ function render(){
 
   layout();
   const lastC = S.R + KO;
+  const koVisible = KO === 1 && !CC[0];
+  let r0 = 0;
+  while (r0 < S.R && CC[r0 + KO]) r0++;
   let html = '';
   let svg = '';
-  const lbl = (c, text) => `<div class="lbl" style="left:${COLX[c]}px;width:${COLW[c]}px;top:6px">${text}</div>`;
 
-  if (KO) html += lbl(0, 'Knockout stage');
-  for (let r = 0; r < S.R; r++) html += lbl(r + KO, labelFor(r));
-  html += lbl(lastC, 'Champion');
+  // column headers: click to minimise, click a minimised strip to bring it back
+  for (let c = 0; c < lastC; c++){
+    if (CC[c]){
+      html += `<div class="strip" data-col="${colKey(c)}" style="left:${COLX[c]}px;width:${COLW[c]}px;top:6px;height:${stripH(c)}px" title="Click to expand">▸ ${colLabel(c)}</div>`;
+    } else {
+      html += `<div class="lbl tog" data-col="${colKey(c)}" style="left:${COLX[c]}px;width:${COLW[c]}px;top:6px" title="Click to minimize">▾ ${colLabel(c)}</div>`;
+    }
+  }
+  html += `<div class="lbl" style="left:${COLX[lastC]}px;width:${COLW[lastC]}px;top:6px">Champion</div>`;
 
   const slotHtml = (name, cls, attrs) =>
     `<div class="${cls}" ${attrs} title="${name === null ? '' : esc(name)}">${name === null ? '—' : esc(name)}</div>`;
 
   // knockout groups
-  for (let k = 0; k < S.g; k++){
-    const w = state.gpicks[k];
-    let slots = '';
-    for (let mem = 0; mem < S.sizes[k]; mem++){
-      const sk = S.starts[k] + mem, name = state.seeds[sk];
-      let cls = 's can';
-      if (w === mem) cls += ' win'; else if (w !== null) cls += ' lose';
-      if (hlName && name === hlName) cls += ' hl';
-      slots += slotHtml(name, cls, `data-g="${k}" data-m="${mem}" data-k="${sk}"`);
+  if (koVisible){
+    for (let k = 0; k < S.g; k++){
+      const w = state.gpicks[k];
+      let slots = '';
+      for (let mem = 0; mem < S.sizes[k]; mem++){
+        const sk = S.starts[k] + mem, name = state.seeds[sk];
+        let cls = 's can';
+        if (w === mem) cls += ' win'; else if (w !== null) cls += ' lose';
+        if (hlName && name === hlName) cls += ' hl';
+        slots += slotHtml(name, cls, `data-g="${k}" data-m="${mem}" data-k="${sk}"`);
+      }
+      html += `<div class="m ko" style="left:${COLX[0]}px;width:${COLW[0]}px;top:${gTop[k]}px;height:${gHgt[k]}px">${slots}</div>`;
+      if (r0 < S.R){
+        const s = S.dest[k];
+        const x1 = COLX[0] + COLW[0], y1 = gTop[k] + gHgt[k] / 2;
+        const x2 = COLX[r0 + KO];
+        const y2 = r0 === 0 ? Y[0][s >> 1] + ((s & 1) ? 9.5 : -9.5) : Y[r0][(s >> 1) >> r0];
+        const xm = (x1 + x2) / 2;
+        svg += `<path class="${w !== null ? 'done' : ''}" d="M${x1} ${y1}C${xm} ${y1} ${xm} ${y2} ${x2} ${y2}"/>`;
+      }
     }
-    html += `<div class="m ko" style="left:${COLX[0]}px;width:${COLW[0]}px;top:${gTop[k]}px;height:${gHgt[k]}px">${slots}</div>`;
-    const s = S.dest[k], q = pos(0, s >> 1);
-    const x1 = COLX[0] + COLW[0], y1 = gTop[k] + gHgt[k] / 2;
-    const x2 = q.x, y2 = q.y + ((s & 1) ? 9.5 : -9.5), xm = (x1 + x2) / 2;
-    svg += `<path class="${w !== null ? 'done' : ''}" d="M${x1} ${y1}C${xm} ${y1} ${xm} ${y2} ${x2} ${y2}"/>`;
   }
 
   // main bracket
   for (let r = 0; r < S.R; r++){
+    if (CC[r + KO]) continue;
+    let nv = r + 1;
+    while (nv < S.R && CC[nv + KO]) nv++;   // next round that is still open
     const n = S.T >> (r + 1);
     for (let i = 0; i < n; i++){
       const p = pos(r, i);
@@ -406,10 +475,10 @@ function render(){
       }
       html += `<div class="m" style="left:${p.x}px;width:${COLW[r + KO]}px;top:${p.y - H / 2}px">${slots}</div>`;
 
-      if (r < S.R - 1){
-        const q = pos(r + 1, i >> 1);
-        const x1 = p.x + COLW[r + KO], x2 = q.x, xm = (x1 + x2) / 2;
-        svg += `<path class="${picked !== null ? 'done' : ''}" d="M${x1} ${p.y}H${xm}V${q.y}H${x2}"/>`;
+      if (nv < S.R){
+        const qy = Y[nv][i >> (nv - r)];
+        const x1 = p.x + COLW[r + KO], x2 = COLX[nv + KO], xm = (x1 + x2) / 2;
+        svg += `<path class="${picked !== null ? 'done' : ''}" d="M${x1} ${p.y}H${xm}V${qy}H${x2}"/>`;
       }
     }
   }
@@ -419,7 +488,7 @@ function render(){
   const champ = fp === null ? null : entry(S.R - 1, 0, fp);
   const cx = COLX[lastC];
   html += `<div class="champ" style="left:${cx}px;width:${COLW[lastC]}px;top:${f.y - 20}px;height:40px;line-height:22px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${champ === null ? '' : esc(champ)}">${champ === null ? '—' : esc(champ)}</div>`;
-  svg += `<path class="${fp !== null ? 'done' : ''}" d="M${f.x + COLW[S.R - 1 + KO]} ${f.y}H${cx}"/>`;
+  if (!CC[S.R - 1 + KO]) svg += `<path class="${fp !== null ? 'done' : ''}" d="M${f.x + COLW[S.R - 1 + KO]} ${f.y}H${cx}"/>`;
 
   $('canvas').innerHTML = `<svg width="${totalW}" height="${totalH}">${svg}</svg>` + html;
   applyZoom();
@@ -461,6 +530,8 @@ const snapshot = () => ({ picks: JSON.parse(JSON.stringify(state.picks)), gpicks
 
 $('canvas').addEventListener('click', e => {
   if (e.target.tagName === 'INPUT') return;
+  const tg = e.target.closest('[data-col]');
+  if (tg){ toggleCol(tg.dataset.col); return; }
   const el = e.target.closest('.s');
   if (!el) return;
   const editable = el.dataset.k !== undefined;
@@ -864,6 +935,7 @@ $('create').onclick = () => {
   confirmCreate = false;
   $('create').textContent = 'Create bracket';
   applyNew(shuffle(lines), opts.m, opts.nb, opts.tsz);
+  resetCols();
   hlName = null;
   $('msg').textContent = 'Bracket created.';
   save();
@@ -881,6 +953,7 @@ $('reshuffle').onclick = () => {
   state.nb = opts.nb;
   state.tsz = opts.nb ? opts.tsz : 0;
   rebuild();
+  resetCols();
   state.picks = emptyPicks();
   state.gpicks = emptyG();
   $('msg').textContent = 'Pairings re-shuffled and picks cleared.';
@@ -923,6 +996,7 @@ $('search').addEventListener('keydown', e => {
   const k = state.seeds.findIndex(s => s.toLowerCase().includes(q));
   if (k < 0){ setStatus('No song matches that search.'); return; }
   hlName = state.seeds[k];
+  expandCol(S.seedLoc[k].g !== undefined ? 'ko' : '0');
   render();
   const loc = S.seedLoc[k];
   const x = loc.g !== undefined ? COLX[0] : pos(0, loc.s >> 1).x;
